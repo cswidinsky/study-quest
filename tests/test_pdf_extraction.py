@@ -4,7 +4,7 @@ import unittest
 
 import pymupdf
 
-from pdf_extraction import extract_pdf_text
+from backend.services.pdf_extraction import extract_pdf_text
 
 
 class TestPDFExtractionErrors(unittest.TestCase):
