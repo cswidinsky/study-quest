@@ -25,3 +25,7 @@ dist-ssr
 
 # Design skill working files (screenshots, direction sheet)
 .taste-skill
+
+# The repo-root .gitignore (Python template) ignores every lib/ folder.
+# Ours is source code, so keep it.
+!src/lib/

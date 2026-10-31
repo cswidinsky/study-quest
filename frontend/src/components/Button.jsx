@@ -1,10 +1,12 @@
 // One button for the whole app. Pills, because the cards use a soft radius.
-// primary = the one main action on a screen (accent). secondary = bordered. ghost = text only.
+// primary = the one main action on a screen (accent, glowing). deck = primary in the deck's colour.
+// secondary = bordered. ghost = text only.
 
 const VARIANTS = {
-  primary: 'bg-accent text-on-accent hover:bg-accent-hover',
+  primary: 'bg-accent text-on-accent hover:bg-accent-hover glow-accent',
+  deck: 'bg-(--deck) text-on-accent glow-deck hover:brightness-110',
   secondary: 'border border-border bg-surface text-text hover:border-muted/50',
-  ghost: 'text-muted hover:bg-background hover:text-text',
+  ghost: 'text-muted hover:bg-border/50 hover:text-text',
 }
 
 const SIZES = {

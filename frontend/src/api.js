@@ -6,6 +6,8 @@ import {
   buildGeneratedDeck,
   buildManualDeck,
   dashboardResponse,
+  deckCards,
+  generationKeywords,
   generationStages,
 } from './mocks/data.js'
 
@@ -51,10 +53,16 @@ export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) 
   })
 }
 
+// TODO(backend): GET /api/decks/:id/cards
+export async function getDeckCards(deckId) {
+  await wait(300)
+  return structuredClone(deckCards[deckId] ?? [])
+}
+
 // TODO(backend): POST /api/decks with { title, course, cards: [{ question, answer }] }
 export async function createDeck(payload) {
   await wait(500)
   return buildManualDeck(payload)
 }
 
-export { generationStages }
+export { generationKeywords, generationStages }

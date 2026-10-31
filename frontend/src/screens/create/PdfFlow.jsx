@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { generateDeckFromPdf, generationStages } from '../../api.js'
+import { generateDeckFromPdf, generationKeywords, generationStages } from '../../api.js'
 import { formatBytes } from '../../lib/format.js'
 import Button from '../../components/Button.jsx'
 import { Field, TextInput } from '../../components/Field.jsx'
@@ -225,15 +225,15 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
         if (canGenerate) onGenerate()
       }}
     >
-      {/* The file lands: a small scale-up from a blur. */}
+      {/* The file drops in from above and settles with a little bounce. */}
       <motion.div
-        className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3"
-        initial={reduceMotion ? false : { opacity: 0, transform: 'scale(0.96)', filter: 'blur(2px)' }}
-        animate={{ opacity: 1, transform: 'scale(1)', filter: 'blur(0px)' }}
-        transition={{ duration: 0.3, ease: EASE_OUT }}
+        className="flex items-center gap-3 rounded-2xl border border-accent/40 bg-surface p-3 shadow-[0_10px_30px_-14px_var(--color-accent)]"
+        initial={reduceMotion ? false : { opacity: 0, transform: 'translateY(-56px) scale(1.06) rotate(-2deg)' }}
+        animate={{ opacity: 1, transform: 'translateY(0px) scale(1) rotate(0deg)' }}
+        transition={{ type: 'spring', duration: 0.7, bounce: 0.38 }}
       >
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-background">
-          <FileIcon className="size-5 text-muted" />
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-on-accent glow-accent">
+          <FileIcon className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{file.name}</p>
@@ -324,20 +324,23 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
 
 /* ——— 3. Generating ——— */
 
+// The PDF is pulled into a glowing core, which turns while the quiz is written.
+// Key ideas float out of it as they are "found"; each finished step makes it pulse.
 function Generating({ file, job, questionCount, onCancel }) {
   const pct = Math.round(job.progress * 100)
   const label = (stage) => (stage.id === 'write' ? `Writing ${questionCount} questions` : stage.label)
 
   return (
     <div aria-live="polite">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-[15px] font-semibold">Writing your quiz</h2>
-        <span className="num text-sm">{pct}%</span>
+      <div className="relative flex flex-col items-center pt-2 pb-4">
+        <AbsorbedFile name={file.name} />
+        <Core stageIndex={job.stageIndex} pct={pct} />
+        <h2 className="mt-5 text-lg font-semibold tracking-tight">Writing your quiz</h2>
+        <p className="mt-0.5 max-w-full truncate text-sm text-muted">From {file.name}</p>
       </div>
-      <p className="mt-0.5 truncate text-sm text-muted">From {file.name}</p>
 
       <div
-        className="mt-4 h-2 overflow-hidden rounded-full bg-border"
+        className="relative mt-2 h-2 overflow-hidden rounded-full bg-border"
         role="progressbar"
         aria-label="Quiz generation progress"
         aria-valuenow={pct}
@@ -346,7 +349,7 @@ function Generating({ file, job, questionCount, onCancel }) {
       >
         {/* Linear and short, so the polled updates blend into one steady movement. */}
         <div
-          className="h-full rounded-full bg-accent transition-transform duration-100 ease-linear"
+          className="sheen relative h-full overflow-hidden rounded-full bg-[linear-gradient(90deg,var(--color-accent),var(--color-sun))] transition-transform duration-100 ease-linear"
           style={{ transform: `translateX(${(job.progress - 1) * 100}%)` }}
         />
       </div>
@@ -368,6 +371,98 @@ function Generating({ file, job, questionCount, onCancel }) {
           Cancel
         </Button>
       </div>
+    </div>
+  )
+}
+
+// The file chip slides down into the core and shrinks away: "absorbed".
+function AbsorbedFile({ name }) {
+  const reduce = useReducedMotion()
+  if (reduce) return null
+  return (
+    <motion.div
+      aria-hidden="true"
+      className="absolute top-0 left-1/2 z-10 flex max-w-[16rem] items-center gap-2 rounded-xl border border-accent/40 bg-surface px-3 py-2 text-sm shadow-[0_10px_30px_-14px_var(--color-accent)]"
+      initial={{ opacity: 1, transform: 'translateX(-50%) translateY(0px) scale(1)' }}
+      animate={{ opacity: 0, transform: 'translateX(-50%) translateY(84px) scale(0.15)' }}
+      transition={{ duration: 0.75, ease: [0.55, 0, 0.75, 0.2] }}
+    >
+      <FileIcon className="size-4 shrink-0 text-accent" />
+      <span className="truncate">{name}</span>
+    </motion.div>
+  )
+}
+
+function Core({ stageIndex, pct }) {
+  const reduce = useReducedMotion()
+  return (
+    <motion.div
+      className="relative mt-2 size-40"
+      initial={reduce ? false : { opacity: 0, transform: 'scale(0.6)' }}
+      animate={{ opacity: 1, transform: 'scale(1)' }}
+      transition={{ type: 'spring', duration: 0.9, bounce: 0.35, delay: reduce ? 0 : 0.45 }}
+    >
+      {/* Soft halo (a pre-blurred static layer, so it's cheap) */}
+      <div className="absolute -inset-6 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-accent)_45%,transparent),transparent)] motion-safe:animate-pulse" />
+      {/* Turning ring of colour */}
+      <div className="absolute inset-3 rounded-full bg-[conic-gradient(from_0deg,var(--color-accent),var(--color-sun),var(--color-secondary),var(--color-accent))] motion-safe:animate-[spin_5s_linear_infinite]" />
+      <div className="absolute inset-[18px] rounded-full bg-surface" />
+      {/* Inner light that pulses on every finished step */}
+      <motion.div
+        key={stageIndex}
+        className="absolute inset-[30px] rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-accent)_55%,transparent),transparent)]"
+        initial={reduce ? false : { transform: 'scale(1.35)', opacity: 1 }}
+        animate={{ transform: 'scale(1)', opacity: 0.8 }}
+        transition={{ type: 'spring', duration: 0.8, bounce: 0.4 }}
+      />
+      {/* Two specks orbiting at different speeds */}
+      <div className="absolute inset-0 motion-safe:animate-[spin_3.2s_linear_infinite]">
+        <span className="absolute top-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-sun shadow-[0_0_10px_var(--color-sun)]" />
+      </div>
+      <div className="absolute inset-5 motion-safe:animate-[spin_4.6s_linear_infinite_reverse]">
+        <span className="absolute bottom-0 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-secondary shadow-[0_0_10px_var(--color-secondary)]" />
+      </div>
+      <span className="num absolute inset-0 grid place-items-center text-2xl font-medium">{pct}%</span>
+      <Ideas active={stageIndex >= 1 && stageIndex <= 3} />
+    </motion.div>
+  )
+}
+
+// While the "AI" reads, the ideas it finds drift out of the core and fade.
+function Ideas({ active }) {
+  const reduce = useReducedMotion()
+  const [bubbles, setBubbles] = useState([])
+  const count = useRef(0)
+
+  useEffect(() => {
+    if (!active || reduce) return
+    const timer = setInterval(() => {
+      const i = count.current++
+      const angle = -Math.PI / 2 + (i % 2 ? 1 : -1) * (0.5 + Math.random() * 0.9)
+      setBubbles((b) => [
+        ...b.slice(-5),
+        { id: i, text: generationKeywords[i % generationKeywords.length], dx: Math.cos(angle) * 150, dy: Math.sin(angle) * 95 },
+      ])
+    }, 520)
+    return () => clearInterval(timer)
+  }, [active, reduce])
+
+  return (
+    <div className="pointer-events-none absolute top-1/2 left-1/2" aria-hidden="true">
+      <AnimatePresence>
+        {bubbles.map((b) => (
+          <motion.span
+            key={b.id}
+            className="absolute rounded-full border border-border bg-surface px-2.5 py-1 text-xs whitespace-nowrap shadow-[var(--shadow-float)]"
+            initial={{ opacity: 0, transform: 'translate(-50%, -50%) translate(0px, 0px) scale(0.5)' }}
+            animate={{ opacity: [0, 1, 1, 0], transform: `translate(-50%, -50%) translate(${b.dx}px, ${b.dy}px) scale(1)` }}
+            transition={{ duration: 2, ease: EASE_OUT, opacity: { duration: 2, times: [0, 0.15, 0.7, 1] } }}
+            onAnimationComplete={() => setBubbles((all) => all.filter((x) => x.id !== b.id))}
+          >
+            {b.text}
+          </motion.span>
+        ))}
+      </AnimatePresence>
     </div>
   )
 }

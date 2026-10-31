@@ -16,7 +16,7 @@ export default function RewardPanel() {
 
   return (
     <div className="space-y-3 sm:space-y-4">
-      <section aria-labelledby="reward-heading" className="rounded-2xl bg-background p-4 sm:p-5">
+      <section aria-labelledby="reward-heading" className="panel rounded-3xl p-4 sm:p-6">
         <h2 id="reward-heading" className="text-sm font-semibold">
           What you’ll earn
         </h2>
@@ -67,7 +67,7 @@ export default function RewardPanel() {
         </p>
       </section>
 
-      <section aria-labelledby="tips-heading" className="rounded-2xl bg-background p-4 sm:p-5">
+      <section aria-labelledby="tips-heading" className="panel rounded-3xl p-4 sm:p-6">
         <h2 id="tips-heading" className="text-sm font-semibold">
           Uploads that work best
         </h2>

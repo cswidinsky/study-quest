@@ -18,6 +18,7 @@ export const initialState = {
   data: null, // the dashboard response from api.js
   toasts: [], // [{ id, kind: 'xp' | 'streak' | 'info', ... }]
   levelUp: null, // { from, to } while the celebration is showing
+  landedDeckId: null, // the deck just created: it "lands" on the dashboard with a glow
 }
 
 let toastId = 0
@@ -63,8 +64,12 @@ export function reducer(state, action) {
         },
         toasts,
         levelUp: toLevel > fromLevel ? { from: fromLevel, to: toLevel } : state.levelUp,
+        landedDeckId: action.deck.id,
       }
     }
+
+    case 'deck/landed':
+      return { ...state, landedDeckId: null }
 
     case 'toast/show':
       return { ...state, toasts: [...state.toasts, { id: ++toastId, ...action.toast }] }

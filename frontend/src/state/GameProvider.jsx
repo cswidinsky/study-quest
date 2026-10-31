@@ -32,6 +32,7 @@ export default function GameProvider({ children }) {
       showToast: (toast) => dispatch({ type: 'toast/show', toast }),
       dismissToast: (id) => dispatch({ type: 'toast/dismiss', id }),
       dismissLevelUp: () => dispatch({ type: 'levelUp/dismiss' }),
+      clearLanded: () => dispatch({ type: 'deck/landed' }),
     }),
     [load],
   )

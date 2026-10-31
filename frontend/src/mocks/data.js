@@ -44,6 +44,7 @@ export const dashboardResponse = {
   decks: [
     {
       id: 'dck_chem2210_mech',
+      color: 'tangerine',
       createdAt: daysAgo(24),
       title: 'Reaction mechanisms',
       course: { code: 'CHEM 2210', name: 'Organic Chemistry II' },
@@ -56,6 +57,7 @@ export const dashboardResponse = {
     },
     {
       id: 'dck_biol2010_signal',
+      color: 'lagoon',
       createdAt: daysAgo(17),
       title: 'Cell signalling pathways',
       course: { code: 'BIOL 2010', name: 'Cell Biology' },
@@ -68,6 +70,7 @@ export const dashboardResponse = {
     },
     {
       id: 'dck_econ1101_markets',
+      color: 'sun',
       createdAt: daysAgo(20),
       title: 'Market structures',
       course: { code: 'ECON 1101', name: 'Microeconomics' },
@@ -80,6 +83,7 @@ export const dashboardResponse = {
     },
     {
       id: 'dck_comp2521_bigo',
+      color: 'sky',
       createdAt: daysAgo(11),
       title: 'Big-O and recursion',
       course: { code: 'COMP 2521', name: 'Data Structures & Algorithms' },
@@ -92,6 +96,7 @@ export const dashboardResponse = {
     },
     {
       id: 'dck_psyc1001_bias',
+      color: 'rose',
       createdAt: daysAgo(33),
       title: 'Cognitive biases',
       course: { code: 'PSYC 1001', name: 'Introduction to Psychology' },
@@ -104,6 +109,7 @@ export const dashboardResponse = {
     },
     {
       id: 'dck_hist1203_revolution',
+      color: 'lime',
       createdAt: daysAgo(2),
       title: 'The French Revolution',
       course: { code: 'HIST 1203', name: 'Modern European History' },
@@ -116,6 +122,58 @@ export const dashboardResponse = {
     },
   ],
 }
+
+// GET /api/decks/:id/cards (a sample of each deck's cards)
+export const deckCards = {
+  dck_chem2210_mech: [
+    { question: 'Why does an SN1 reaction give a racemic mixture?', answer: 'The carbocation intermediate is planar, so the nucleophile can attack from either face.' },
+    { question: 'Which substrate reacts fastest by SN2: methyl, primary, secondary or tertiary?', answer: 'Methyl. Less crowding lets the nucleophile reach the back of the carbon.' },
+    { question: 'What is the rate law for an SN1 reaction?', answer: 'Rate = k[substrate]. Only the substrate takes part in the rate-determining step.' },
+    { question: 'Why do polar aprotic solvents speed up SN2 reactions?', answer: 'They don’t hydrogen-bond to the nucleophile, so it stays free and reactive.' },
+  ],
+  dck_biol2010_signal: [
+    { question: 'What does adenylyl cyclase make when a Gs protein activates it?', answer: 'Cyclic AMP (cAMP), made from ATP.' },
+    { question: 'Which enzyme does cAMP activate?', answer: 'Protein kinase A (PKA).' },
+    { question: 'How does a receptor tyrosine kinase become active?', answer: 'The ligand makes two receptors pair up, and each phosphorylates tyrosines on the other.' },
+    { question: 'What switches a G protein off?', answer: 'Its own GTPase activity, which hydrolyses GTP to GDP.' },
+  ],
+  dck_econ1101_markets: [
+    { question: 'Where does a monopolist set its output?', answer: 'Where marginal revenue equals marginal cost.' },
+    { question: 'Why is a monopolist’s marginal revenue below its demand curve?', answer: 'To sell one more unit it has to lower the price on every unit it sells.' },
+    { question: 'What is the kinked demand curve meant to explain?', answer: 'Sticky prices in oligopoly: rivals match price cuts but not price rises.' },
+    { question: 'What profit does a firm in monopolistic competition earn in the long run?', answer: 'Zero economic profit, because new entrants pull its demand curve left.' },
+  ],
+  dck_comp2521_bigo: [
+    { question: 'What is the time complexity of binary search on a sorted array?', answer: 'O(log n).' },
+    { question: 'Why is naive recursive Fibonacci O(2ⁿ)?', answer: 'Each call branches into two more, recomputing the same subproblems again and again.' },
+    { question: 'Solve T(n) = 2T(n/2) + n with the master theorem.', answer: 'O(n log n).' },
+    { question: 'What happens if a recursive function has no base case?', answer: 'It recurses forever, until the call stack overflows.' },
+  ],
+  dck_psyc1001_bias: [
+    { question: 'What is the availability heuristic?', answer: 'Judging how likely something is by how easily examples come to mind.' },
+    { question: 'What is confirmation bias?', answer: 'Looking for, and favouring, information that supports what you already believe.' },
+    { question: 'What is anchoring?', answer: 'Leaning too heavily on the first number you hear when you make an estimate.' },
+    { question: 'What is hindsight bias?', answer: 'Believing, after something happens, that you knew it all along.' },
+  ],
+  dck_hist1203_revolution: [
+    { question: 'Which event on 14 July 1789 is seen as the start of the Revolution?', answer: 'The storming of the Bastille.' },
+    { question: 'What did the Declaration of the Rights of Man and of the Citizen proclaim?', answer: 'Liberty, equality before the law, and that sovereignty rests with the nation.' },
+    { question: 'Who dominated the Committee of Public Safety during the Terror?', answer: 'Maximilien Robespierre.' },
+    { question: 'What ended the Terror in July 1794?', answer: 'The Thermidorian Reaction: Robespierre’s arrest and execution.' },
+  ],
+}
+
+// Ideas the mock "AI" pretends to find while it reads a PDF (shown floating out of the core).
+export const generationKeywords = [
+  'Concentration gradient',
+  'Na⁺/K⁺-ATPase',
+  'GLUT transporters',
+  'Symport',
+  'Aquaporins',
+  'Active transport',
+  'Lipid bilayer',
+  'Facilitated diffusion',
+]
 
 // Steps the backend reports while it turns a PDF into a quiz.
 // Real version: POST /api/decks/generate returns a job id, then GET /api/jobs/:id is polled.
@@ -157,9 +215,14 @@ const generatedCards = [
 let nextId = 1
 const newDeckId = () => `dck_new_${Date.now().toString(36)}_${nextId++}`
 
+// New decks take the next colour in turn.
+const NEW_DECK_COLORS = ['lagoon', 'rose', 'sky', 'lime', 'sun', 'tangerine']
+const nextColor = () => NEW_DECK_COLORS[(nextId - 1) % NEW_DECK_COLORS.length]
+
 // Response of GET /api/jobs/:id once the job is done.
 export function buildGeneratedDeck({ fileName, title, course, questionCount }) {
   return {
+    color: nextColor(),
     id: newDeckId(),
     title,
     course,
@@ -177,6 +240,7 @@ export function buildGeneratedDeck({ fileName, title, course, questionCount }) {
 // Response of POST /api/decks (a deck typed in by hand).
 export function buildManualDeck({ title, course, cards }) {
   return {
+    color: nextColor(),
     id: newDeckId(),
     title,
     course,

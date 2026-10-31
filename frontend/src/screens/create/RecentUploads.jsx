@@ -13,7 +13,7 @@ export default function RecentUploads({ decks }) {
   if (uploads.length === 0) return null
 
   return (
-    <section aria-labelledby="recent-heading" className="mt-3 rounded-2xl bg-background p-4 sm:mt-4 sm:p-5">
+    <section aria-labelledby="recent-heading" className="panel mt-3 rounded-3xl p-4 sm:mt-4 sm:p-6">
       <h2 id="recent-heading" className="text-sm font-semibold">
         Recent uploads
       </h2>

@@ -80,7 +80,7 @@ function XpToast({ toast }) {
 
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-accent text-on-accent">
+      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-accent text-on-accent glow-accent">
         <BoltIcon className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
