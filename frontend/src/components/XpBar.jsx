@@ -5,54 +5,49 @@ const EASE_OUT = [0.23, 1, 0.32, 1]
 
 // translateX keeps the fill's rounded end intact (scaleX would squash it)
 // and runs on the GPU, so it stays smooth.
-const position = (progress) => `translateX(${(progress - 1) * 100}%)`
+const position = (progress) => `translateX(${(Math.min(1, progress) - 1) * 100}%)`
 
-export default function XpBar({ value, max, level }) {
+// Draws at its value straight away. It only animates when the value changes
+// (earning XP), and plays fill → reset → grow when the level goes up.
+export default function XpBar({ value, max, level, height = 'h-2', label }) {
   const [scope, animate] = useAnimate()
   const reduceMotion = useReducedMotion()
-  const lastLevel = useRef(level)
-  const isFirstRun = useRef(true)
+  const last = useRef({ value, level })
 
   useEffect(() => {
     const fill = scope.current
     const progress = value / max
-    const levelledUp = level > lastLevel.current
-    lastLevel.current = level
+    const levelledUp = level > last.current.level
+    const changed = value !== last.current.value || levelledUp
+    last.current = { value, level }
+    if (!changed) return
 
     if (reduceMotion) {
       animate(fill, { transform: position(progress) }, { duration: 0 })
-      return
-    }
-
-    if (levelledUp) {
-      // Fill to the end, snap back to empty, then grow to the new amount.
+    } else if (levelledUp) {
       animate([
-        [fill, { transform: position(1) }, { duration: 0.2, ease: EASE_OUT }],
+        [fill, { transform: position(1) }, { duration: 0.25, ease: EASE_OUT }],
         [fill, { transform: position(0) }, { duration: 0 }],
-        [fill, { transform: position(progress) }, { duration: 0.35, ease: EASE_OUT }],
+        [fill, { transform: position(progress) }, { duration: 0.4, ease: EASE_OUT }],
       ])
-      return
+    } else {
+      animate(fill, { transform: position(progress) }, { duration: 0.6, ease: EASE_OUT })
     }
-
-    // On page load it grows in once, after the card has appeared.
-    const delay = isFirstRun.current ? 0.25 : 0
-    isFirstRun.current = false
-    animate(fill, { transform: position(progress) }, { duration: 0.5, delay, ease: EASE_OUT })
   }, [value, max, level, reduceMotion, animate, scope])
 
   return (
     <div
       role="progressbar"
-      aria-label={`Progress to level ${level + 1}`}
+      aria-label={label ?? `XP towards level ${level + 1}`}
       aria-valuemin={0}
       aria-valuemax={max}
       aria-valuenow={value}
-      className="h-2 overflow-hidden rounded-full bg-border"
+      className={`${height} overflow-hidden rounded-full bg-border`}
     >
       <div
         ref={scope}
         className="h-full rounded-full bg-accent"
-        style={{ transform: position(0) }}
+        style={{ transform: position(value / max) }}
       />
     </div>
   )

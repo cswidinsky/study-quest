@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { motion } from 'motion/react'
 import { useTheme } from '../theme.js'
 
@@ -9,6 +10,7 @@ const OPTIONS = [
 
 export default function ThemeToggle() {
   const [theme, setTheme] = useTheme()
+  const pillId = useId() // unique per toggle, so two toggles on screen don't share a pill
 
   return (
     <div
@@ -26,12 +28,12 @@ export default function ThemeToggle() {
             aria-pressed={active}
             title={label}
             onClick={() => setTheme(value)}
-            className="relative grid size-8 place-items-center rounded-full text-muted transition-[color,transform] duration-150 ease-out hover:text-text active:scale-[0.94] aria-pressed:text-text focus-visible:outline-2 focus-visible:outline-accent"
+            className="relative grid size-8 place-items-center rounded-full text-muted transition-[color,scale] duration-150 ease-out hover:text-text active:scale-[0.94] aria-pressed:text-text focus-visible:outline-2 focus-visible:outline-accent"
           >
             {/* One pill that slides between options (shared layoutId) */}
             {active && (
               <motion.span
-                layoutId="theme-pill"
+                layoutId={pillId}
                 className="absolute inset-0 rounded-full bg-background"
                 transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
               />

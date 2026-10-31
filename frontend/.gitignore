@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Design skill working files (screenshots, direction sheet)
+.taste-skill
