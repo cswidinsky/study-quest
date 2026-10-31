@@ -10,7 +10,7 @@ import CountUp from '../components/CountUp.jsx'
 import FillBar from '../components/FillBar.jsx'
 import StreakFlame from '../components/StreakFlame.jsx'
 import TiltCard from '../components/TiltCard.jsx'
-import { AlertIcon, ArrowRightIcon, CalendarIcon, PlusIcon } from '../components/icons.jsx'
+import { AlertIcon, ArrowRightIcon, CalendarIcon, PlusIcon, RefreshIcon } from '../components/icons.jsx'
 
 // The screen answers "What should I study right now?" — "Due for review" is the biggest block.
 // Choreography: the greeting rises word by word, then the blocks follow one after another;
@@ -23,7 +23,7 @@ const MAX_DUE_ROWS = 4
 const pct = (n) => `${n}%`
 
 export default function Dashboard() {
-  const { status, data, reload, showToast } = useGame()
+  const { status, data, reload } = useGame()
   const rise = useRise()
 
   if (status === 'error') return <LoadError onRetry={reload} />
@@ -35,8 +35,6 @@ export default function Dashboard() {
     .sort((a, b) => examOrder(a) - examOrder(b) || b.dueCount - a.dueCount)
   const dueTotal = dueDecks.reduce((sum, d) => sum + d.dueCount, 0)
 
-  const startReview = () =>
-    showToast({ kind: 'info', message: 'Review sessions aren’t connected yet. They’ll start from here.' })
 
   return (
     <div className="mx-auto max-w-[1100px] px-4 pt-7 pb-24 sm:px-6 lg:pt-24">
@@ -62,7 +60,7 @@ export default function Dashboard() {
         </motion.div>
 
         <motion.div variants={rise} className="col-span-12 lg:col-span-9">
-          <DuePanel dueDecks={dueDecks} dueTotal={dueTotal} onStart={startReview} upcoming={upcoming} />
+          <DuePanel dueDecks={dueDecks} dueTotal={dueTotal} upcoming={upcoming} weakCount={decks.reduce((s, d) => s + d.weakCount, 0)} />
         </motion.div>
         <motion.div variants={rise} className="col-span-12 lg:col-span-3">
           <ComingUp todayDate={activity[activity.length - 1].date} dueToday={dueTotal} upcoming={upcoming} />
@@ -299,7 +297,7 @@ function MasteredTile({ decks }) {
 
 /* ——— Due for review ——— */
 
-function DuePanel({ dueDecks, dueTotal, onStart, upcoming }) {
+function DuePanel({ dueDecks, dueTotal, upcoming, weakCount }) {
   const rise = useRise(12)
   const minutes = Math.max(1, Math.round((dueTotal * SECONDS_PER_CARD) / 60))
   const shown = dueDecks.slice(0, MAX_DUE_ROWS)
@@ -328,17 +326,29 @@ function DuePanel({ dueDecks, dueTotal, onStart, upcoming }) {
             </span>
           </p>
         </div>
-        {dueTotal > 0 && (
-          <Button size="lg" onClick={onStart} className="w-full sm:w-auto">
-            Start review
-            <ArrowRightIcon />
-          </Button>
-        )}
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          {weakCount > 0 && (
+            <Button as="a" href="#/review/rematch" variant="secondary" size="lg" className="flex-1 sm:flex-none">
+              <RefreshIcon />
+              Rematch {weakCount} weak
+            </Button>
+          )}
+          {dueTotal > 0 && (
+            <Button as="a" href="#/review" size="lg" className="flex-1 sm:flex-none">
+              Start review
+              <ArrowRightIcon />
+            </Button>
+          )}
+        </div>
       </div>
 
       {dueTotal === 0 ? (
         <p className="relative mt-5 rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted">
-          You’re all caught up. <span className="num">{upcoming[0].due}</span> cards come due tomorrow.
+          You’re all caught up. <span className="num">{upcoming[0].due}</span> {upcoming[0].due === 1 ? 'card comes' : 'cards come'} due
+          tomorrow.{' '}
+          <a href="#/review" className="text-text underline decoration-border underline-offset-4 hover:decoration-text">
+            See what you can study
+          </a>
         </p>
       ) : (
         <motion.ul className="relative mt-6 space-y-2" initial="hidden" animate="show" variants={stagger(0.06, 0.55)}>
@@ -487,7 +497,7 @@ function DecksPanel({ decks }) {
 
 function DeckCard({ deck, landed }) {
   const reduce = useReducedMotion()
-  const mastery = percent(deck.masteredCount, deck.cardCount)
+  const mastery = deck.mastery
   const isNew = !deck.lastStudiedAt && deck.createdAt && daysFromToday(deck.createdAt) > -3
   const studied = relativeDay(deck.lastStudiedAt)
 
@@ -525,7 +535,7 @@ function DeckCard({ deck, landed }) {
 
       <div className="relative mt-5">
         <p className="mb-1.5 flex justify-between text-xs">
-          <span className="text-muted">Mastered</span>
+          <span className="text-muted">Mastery</span>
           <CountUp value={mastery} format={pct} delay={0.7} className="num" />
         </p>
         <FillBar value={mastery / 100} colour="var(--deck)" glow delay={0.75} label={`${deck.title} mastery`} />

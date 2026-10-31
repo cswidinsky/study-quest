@@ -36,12 +36,12 @@ export default function ManualForm({ decks, onDone }) {
     e.preventDefault()
     if (!canSave) return
     setSaving(true)
-    const deck = await createDeck({
+    const result = await createDeck({
       title: title.trim(),
       course: toCourse(course, decks),
       cards: ready.map(({ question, answer }) => ({ question: question.trim(), answer: answer.trim() })),
     })
-    onDone(deck)
+    onDone(result)
   }
 
   return (

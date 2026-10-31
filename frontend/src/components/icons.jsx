@@ -87,3 +87,73 @@ export const AlertIcon = (p) => (
     <path d="M12 7.5v5.5M12 16.5h.01" />
   </Icon>
 )
+
+export const CardsIcon = (p) => (
+  <Icon {...p}>
+    <rect x="3" y="7" width="13" height="14" rx="2" />
+    <path d="M8 3h11a2 2 0 0 1 2 2v12" />
+  </Icon>
+)
+
+export const ChartIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+  </Icon>
+)
+
+export const UserIcon = (p) => (
+  <Icon {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0 1 16 0" />
+  </Icon>
+)
+
+export const SettingsIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+    <circle cx="16" cy="7" r="2" />
+    <circle cx="10" cy="17" r="2" />
+  </Icon>
+)
+
+export const SoundOnIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 9v6h4l5 4V5L8 9z" />
+    <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
+  </Icon>
+)
+
+export const SoundOffIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 9v6h4l5 4V5L8 9z" />
+    <path d="m17 10 4 4M21 10l-4 4" />
+  </Icon>
+)
+
+export const RefreshIcon = (p) => (
+  <Icon {...p}>
+    <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+    <path d="M20 5v6h-6" />
+  </Icon>
+)
+
+export const FlipIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 12a8 8 0 0 1 13.7-5.6L20 9" />
+    <path d="M20 4v5h-5" />
+    <path d="M20 12a8 8 0 0 1-13.7 5.6L4 15" />
+    <path d="M4 20v-5h5" />
+  </Icon>
+)
+
+export const FlagIcon = (p) => (
+  <Icon {...p}>
+    <path d="M5 21V4M5 4h11l-2 4 2 4H5" />
+  </Icon>
+)
+
+export const QuoteIcon = (p) => (
+  <Icon {...p}>
+    <path d="M7 7h4v4c0 3-1.5 5-4 6M15 7h4v4c0 3-1.5 5-4 6" />
+  </Icon>
+)

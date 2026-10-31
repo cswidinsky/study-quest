@@ -5,6 +5,8 @@ import { levelProgress, levelStartXp } from '../lib/levels.js'
 import { formatNumber } from '../lib/format.js'
 import { EASE_CINEMA } from '../lib/motion.js'
 import { lockScroll } from '../lib/smoothScroll.js'
+import { play } from '../lib/sound.js'
+import { buzz } from '../lib/haptics.js'
 import Button from './Button.jsx'
 
 // The level-up, choreographed like a short film (about 1.6 seconds):
@@ -18,14 +20,14 @@ const IMPACT = 0.85
 const SHOW_AFTER_MS = 900 // let the XP toast land first
 
 export default function LevelUpDialog() {
-  const { levelUp, dismissLevelUp, data } = useGame()
+  const { levelUp, dismissLevelUp, data, celebrationsHeld } = useGame()
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    if (!levelUp) return
+    if (!levelUp || celebrationsHeld) return
     const timer = setTimeout(() => setVisible(true), SHOW_AFTER_MS)
     return () => clearTimeout(timer)
-  }, [levelUp])
+  }, [levelUp, celebrationsHeld])
 
   // Camera pull-back on the whole app while the moment plays.
   useEffect(() => {
@@ -65,6 +67,8 @@ function Celebration({ levelUp, totalXp, onClose }) {
       ? null
       : setTimeout(() => {
           setShown(levelUp.to)
+          play('levelup')
+          buzz('levelup')
           setImpact(true)
         }, IMPACT * 1000)
     return () => {

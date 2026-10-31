@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { XP_REWARDS } from '../../lib/levels.js'
+import { XP_RULES } from '../../lib/levels.js'
 import { EASE_CINEMA, stagger, useRise } from '../../lib/motion.js'
 import { deckStyle, deckTransitionStyle } from '../../lib/deck.js'
 import Button from '../../components/Button.jsx'
@@ -9,13 +9,16 @@ import { ArrowRightIcon } from '../../components/icons.jsx'
 // The new deck lands: it drops in from above in its own colour, with a flash of light.
 // Its card shares a transition name with its dashboard card, so "Back to dashboard"
 // flies it straight into its place in the grid.
-export default function DeckReady({ deck, onAnother }) {
+export default function DeckReady({ deck, cards, onAnother }) {
   const headingRef = useRef(null)
   const reduce = useReducedMotion()
   const rise = useRise(14)
   useEffect(() => headingRef.current?.focus(), [])
 
   const fromPdf = deck.source.type === 'pdf'
+  const preview = cards.slice(0, 3)
+  // What learning these cards is worth (first time, before combos and flashcard discounts).
+  const worth = cards.reduce((s, c) => s + XP_RULES.baseByDifficulty[c.difficulty], 0)
 
   return (
     <section className="panel rounded-3xl p-4 sm:p-6" aria-labelledby="ready-heading" style={deckStyle(deck)}>
@@ -61,20 +64,21 @@ export default function DeckReady({ deck, onAnother }) {
           </div>
           <p className="flex items-baseline gap-4 text-sm">
             <span>
-              <span className="num text-lg">{deck.cardCount}</span> <span className="text-muted">{deck.cardCount === 1 ? 'card' : 'cards'}</span>
+              <span className="num text-lg">{cards.length}</span> <span className="text-muted">{cards.length === 1 ? 'card' : 'cards'}</span>
             </span>
             <span>
-              <span className="num text-lg">+{XP_REWARDS.deckCreated}</span> <span className="text-muted">XP</span>
+              <span className="text-muted">worth </span>
+              <span className="num text-lg">{worth}+</span> <span className="text-muted">XP to learn</span>
             </span>
           </p>
         </div>
       </motion.div>
 
       <h3 className="mt-7 text-sm font-medium">
-        {deck.preview.length < deck.cardCount ? `First ${deck.preview.length} of ${deck.cardCount} cards` : 'Cards'}
+        {preview.length < cards.length ? `First ${preview.length} of ${cards.length} cards` : 'Cards'}
       </h3>
       <motion.ul className="mt-3 space-y-2" initial="hidden" animate="show" variants={stagger(0.08, 0.7)}>
-        {deck.preview.map((card) => (
+        {preview.map((card) => (
           <motion.li key={card.question} variants={rise} className="rounded-2xl border border-border bg-surface/80 px-4 py-3.5">
             <p className="text-sm font-medium">{card.question}</p>
             <p className="mt-1 text-sm text-muted">{card.answer}</p>
@@ -83,12 +87,12 @@ export default function DeckReady({ deck, onAnother }) {
       </motion.ul>
 
       <div className="mt-7 flex flex-wrap gap-2">
-        <Button as="a" href="#/" size="lg">
-          Back to dashboard
+        <Button as="a" href={`#/review/deck/${deck.id}`} size="lg">
+          Learn it now
           <ArrowRightIcon />
         </Button>
-        <Button as="a" href={`#/deck/${deck.id}`} variant="secondary" size="lg">
-          Open deck
+        <Button as="a" href="#/" variant="secondary" size="lg">
+          Back to dashboard
         </Button>
         <Button variant="ghost" size="lg" onClick={onAnother}>
           Create another

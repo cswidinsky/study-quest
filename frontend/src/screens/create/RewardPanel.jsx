@@ -1,28 +1,43 @@
 import { useGame } from '../../state/game.js'
-import { XP_REWARDS, levelProgress } from '../../lib/levels.js'
+import { XP_RULES, levelProgress } from '../../lib/levels.js'
 import { formatNumber } from '../../lib/format.js'
 import StreakFlame from '../../components/StreakFlame.jsx'
 import XpBar from '../../components/XpBar.jsx'
 
-// Beside the form: what this deck is worth to you right now.
+// Beside the form: how a deck turns into XP (learning it, not making it).
 export default function RewardPanel() {
   const { data } = useGame()
   if (!data) return null
 
   const { xp, streak } = data.user
-  const reward = XP_REWARDS.deckCreated
   const now = levelProgress(xp.total)
-  const crosses = reward >= now.toNext
+  const { easy, medium, hard } = XP_RULES.baseByDifficulty
 
   return (
     <div className="space-y-3 sm:space-y-4">
       <section aria-labelledby="reward-heading" className="panel rounded-3xl p-4 sm:p-6">
         <h2 id="reward-heading" className="text-sm font-semibold">
-          What you’ll earn
+          How a deck earns XP
         </h2>
-        <p className="mt-2 flex items-baseline gap-2">
-          <span className="num text-[28px] leading-none">+{reward}</span>
-          <span className="text-sm text-muted">XP for a new deck</span>
+        <p className="mt-2 text-sm text-muted">Making a deck is free. Learning it is what pays:</p>
+        <ul className="mt-3 space-y-1.5 text-sm">
+          <li className="flex justify-between gap-3">
+            <span>Each new card you get right</span>
+            <span className="num shrink-0">
+              {easy}–{hard} XP
+            </span>
+          </li>
+          <li className="flex justify-between gap-3">
+            <span>Remembering it weeks later</span>
+            <span className="num shrink-0">up to ×2</span>
+          </li>
+          <li className="flex justify-between gap-3">
+            <span>Right answers in a row</span>
+            <span className="num shrink-0">up to ×3</span>
+          </li>
+        </ul>
+        <p className="mt-2 text-xs text-muted">
+          A medium card is worth <span className="num">{medium}</span> XP before bonuses.
         </p>
 
         <div className="mt-5">
@@ -35,19 +50,10 @@ export default function RewardPanel() {
             </span>
           </p>
           <XpBar value={now.inLevel} max={now.span} level={now.level} height="h-1.5" />
+          <p className="mt-2 text-sm">
+            <span className="num">{now.toNext}</span> XP to level <span className="num">{now.level + 1}</span>.
+          </p>
         </div>
-        <p className="mt-3 text-sm">
-          {crosses ? (
-            <>
-              This deck takes you to <span className="font-semibold">level <span className="num">{now.level + 1}</span></span>.
-            </>
-          ) : (
-            <>
-              <span className="num">{now.toNext - reward}</span> XP to level <span className="num">{now.level + 1}</span>{' '}
-              after this.
-            </>
-          )}
-        </p>
 
         <p className="mt-4 flex items-start gap-2.5 text-sm">
           <StreakFlame lit={streak.studiedToday} className="mt-px size-[18px]" />
@@ -56,13 +62,7 @@ export default function RewardPanel() {
               Today’s flame is lit. <span className="num">{streak.current}</span>-day streak.
             </span>
           ) : (
-            <span>
-              It also lights today’s flame:{' '}
-              <span className="num">
-                {streak.current} → {streak.current + 1}
-              </span>{' '}
-              days.
-            </span>
+            <span>Your first right answer today lights the flame and keeps your streak.</span>
           )}
         </p>
       </section>

@@ -11,11 +11,19 @@ import LevelUpDialog from './components/LevelUpDialog.jsx'
 import Dashboard from './screens/Dashboard.jsx'
 import CreateDeck from './screens/CreateDeck.jsx'
 import DeckPage from './screens/DeckPage.jsx'
+import Quiz from './screens/Quiz.jsx'
+import Stats from './screens/Stats.jsx'
+import Profile from './screens/Profile.jsx'
+import Settings from './screens/Settings.jsx'
 
 const SCREENS = {
   home: Dashboard,
   new: CreateDeck,
   deck: DeckPage,
+  review: Quiz,
+  stats: Stats,
+  profile: Profile,
+  settings: Settings,
 }
 
 export default function App() {
@@ -31,7 +39,7 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <GameProvider>
         <Ambient />
-        <AppShell active={route.name === 'deck' ? 'home' : route.name}>
+        <AppShell active={route.name === 'deck' ? 'home' : route.name} focus={route.name === 'review'}>
           {/* key = path: each screen mounts fresh, so its entrance plays every visit */}
           <Screen key={path} {...route.params} />
         </AppShell>

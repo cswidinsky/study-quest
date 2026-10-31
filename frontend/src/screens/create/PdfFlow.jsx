@@ -10,7 +10,7 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 // PDF → quiz, in three phases: pick a file, check the details, watch it generate.
 
 const MAX_BYTES = 20 * 1024 * 1024
-const QUESTION_COUNTS = [10, 20, 30]
+const QUESTION_COUNTS = [5, 10] // the mock writes up to 10 (GENERATED_POOL_SIZE)
 const EASE_OUT = [0.23, 1, 0.32, 1]
 
 function validate(file) {
@@ -27,7 +27,7 @@ export default function PdfFlow({ decks, onDone }) {
   const [phase, setPhase] = useState('pick') // 'pick' | 'details' | 'generating'
   const [file, setFile] = useState(null)
   const [error, setError] = useState(null)
-  const [details, setDetails] = useState({ title: '', course: '', questionCount: 20 })
+  const [details, setDetails] = useState({ title: '', course: '', questionCount: 10 })
   const [job, setJob] = useState({ stageIndex: 0, progress: 0 })
   const abortRef = useRef(null)
 
@@ -58,7 +58,7 @@ export default function PdfFlow({ decks, onDone }) {
     setJob({ stageIndex: 0, progress: 0 })
     setPhase('generating')
     try {
-      const deck = await generateDeckFromPdf(
+      const result = await generateDeckFromPdf(
         file,
         {
           title: details.title.trim(),
@@ -67,7 +67,7 @@ export default function PdfFlow({ decks, onDone }) {
         },
         { onProgress: setJob, signal: controller.signal },
       )
-      onDone(deck)
+      onDone(result)
     } catch (err) {
       if (err.name !== 'AbortError') {
         setError('Something went wrong while writing your quiz. Try again.')

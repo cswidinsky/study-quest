@@ -29,6 +29,7 @@ export function scrollToElement(el, offset = -24) {
 
 // Freeze page scroll while a sheet or dialog is open.
 export function lockScroll(locked) {
-  if (lenis) (locked ? lenis.stop() : lenis.start())
+  if (lenis && locked) lenis.stop()
+  else if (lenis) lenis.start()
   document.documentElement.style.overflow = locked ? 'hidden' : ''
 }

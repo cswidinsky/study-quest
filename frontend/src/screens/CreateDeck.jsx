@@ -28,9 +28,9 @@ export default function CreateDeck() {
   const [created, setCreated] = useState(null)
   const [round, setRound] = useState(0) // bump to start a fresh form
 
-  function handleDone(deck) {
-    setCreated(deck)
-    addDeck(deck)
+  function handleDone(result) {
+    setCreated(result)
+    addDeck(result.deck, result.cards)
   }
 
   function startAnother() {
@@ -55,7 +55,7 @@ export default function CreateDeck() {
           <AnimatePresence mode="wait" initial={false}>
             {created ? (
               <motion.div key="ready" initial={{ opacity: 1 }} animate={{ opacity: 1 }}>
-                <DeckReady deck={created} onAnother={startAnother} />
+                <DeckReady deck={created.deck} cards={created.cards} onAnother={startAnother} />
               </motion.div>
             ) : (
               <motion.div

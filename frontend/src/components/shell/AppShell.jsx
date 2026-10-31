@@ -19,7 +19,15 @@ import { NAV_ITEMS } from './nav.js'
 // perfectly still while screens change underneath them.
 // Everything sits on a "stage" that pulls back like a camera during level-up.
 
-export default function AppShell({ active, children }) {
+// `focus`: the quiz gets the whole stage (no sidebar, HUD or phone bar).
+export default function AppShell({ active, focus = false, children }) {
+  if (focus) {
+    return (
+      <div className="stage min-h-dvh">
+        <main className="relative">{children}</main>
+      </div>
+    )
+  }
   return (
     <div className="stage min-h-dvh lg:flex">
       <Sidebar active={active} />
@@ -33,11 +41,14 @@ export default function AppShell({ active, children }) {
 }
 
 function NavLinks({ active, onNavigate, large = false, pillId }) {
+  const { data } = useGame()
+  const due = data ? data.decks.reduce((s, d) => s + d.dueCount, 0) : 0
   return (
     <nav aria-label="Main">
       <ul className="space-y-1">
-        {NAV_ITEMS.map(({ name, path, label, Icon }) => {
+        {NAV_ITEMS.map(({ name, path, label, Icon, badge }) => {
           const current = active === name
+          const count = badge === 'due' ? due : 0
           return (
             <li key={path}>
               <a
@@ -58,6 +69,11 @@ function NavLinks({ active, onNavigate, large = false, pillId }) {
                 )}
                 <Icon className={`relative ${large ? 'size-5' : 'size-4'} ${current ? 'text-accent' : ''}`} />
                 <span className="relative">{label}</span>
+                {count > 0 && (
+                  <span className="num relative ml-auto rounded-full bg-accent px-1.5 text-xs leading-5 font-semibold text-on-accent" aria-label={`${count} due`}>
+                    {count}
+                  </span>
+                )}
               </a>
             </li>
           )

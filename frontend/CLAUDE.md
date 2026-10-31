@@ -109,29 +109,57 @@ are always emitted). Use the Tailwind classes, never raw hex. Tailwind's default
 - **Upload sequence:** file drops in → absorbed into a turning core that emits key ideas → the
   new deck lands (and later flies into the dashboard grid).
 
+## Ownership
+
+The owner of this folder also owns the quiz screen (#16), XP and leveling (#19), and
+gamification (#6, #20).
+
+## XP, mastery and the "server" boundary
+
+- **`src/lib/levels.js` is the single source of truth for XP** (`xpForAnswer`, `XP_RULES`,
+  `memoryBonus`, `comboMultiplier`, levels). XP rewards learning only: first-try correct answers on
+  due or new cards; more for harder cards and longer memory; combos up to ×3; flashcards ×0.75;
+  practice (not due) earns 0; a one-off +3 "comeback" for fixing a card you missed. Creating decks
+  earns nothing. **The server must calculate the real XP**; the browser copy is for the demo.
+- **`src/lib/srs.js`**: spaced repetition (`schedule`) and per-card mastery levels
+  (New → Learning → Familiar → Strong → Mastered by interval: 0 / <3 / 3–9 / 10–20 / 21+ days).
+  Also server-owned in production.
+- `api.recordAnswer(card, …)` stands in for `POST /api/reviews`: it returns `{ xp, review,
+  masteryBefore, masteryAfter }`. Components never compute XP themselves.
+
 ## Data
 
-- **All mock data lives in `src/mocks/data.js`**, shaped like real API responses. Only
-  `src/api.js` imports it. To connect the backend, replace the bodies of the functions in
-  `src/api.js` (each has a `TODO(backend)` naming its endpoint) and delete the mocks.
-- Totals (cards due, accuracy, mastered) are computed from the rows, never stored twice.
-- Levels come from total XP via `src/lib/levels.js` (level n starts at 50 × n × (n − 1) XP).
+- **All mock data lives in `src/mocks/data.js`**, shaped like real API responses
+  (`{ user, activity, decks, cards }`). Only `src/api.js` imports it. Each card has
+  `question, options[4], correctIndex, answer, explanation, difficulty, topic, sourceSnippet,
+  review`. Hand-written cards have no options (they play as flashcards).
+- Every count (due, new, mastery %, accuracy, upcoming, weak spots) is computed from the cards in
+  `src/lib/selectors.js`, never stored. `GameProvider` exposes `data` (computed view) and
+  `rawData` (the save).
+- **Progress persists** in localStorage (`src/lib/storage.js`, key `studyquest:demo:v2`) after
+  every change. Settings → "Reset demo" clears it. Bump the key if the save shape changes.
 - Use real-sounding content (real course names, real questions). No lorem ipsum.
 
 ## App structure
 
-- `src/App.jsx`: providers, ambient layer, routes (`home`, `new`, `deck`), toasts, level-up
-- `src/state/`: `game.js` (reducer, `useGame()`), `GameProvider.jsx`. `addDeck(deck)` awards XP,
-  lights the streak, queues toasts, triggers level-up and marks the deck as "landed".
-- `src/components/shell/`: `AppShell` (floating sidebar, XP HUD, phone bar, springy menu sheet),
-  `PlayerCard`, `Logo`, `nav.js`
+- `src/App.jsx`: providers, ambient layer, routes, toasts, level-up. Routes (`lib/router.js`):
+  `#/`, `#/new`, `#/deck/<id>`, `#/review`, `#/review/deck/<id>`, `#/review/rematch`, `#/stats`,
+  `#/profile`, `#/settings`. The quiz runs in focus mode (no sidebar).
+- `src/state/`: `game.js` (reducer, `useGame()`), `GameProvider.jsx`. Actions: `recordAnswer`,
+  `addDeck(deck, cards)`, `updateSettings`, `updateProfile`, `reportCard`, `holdCelebrations`,
+  `resetDemo`, toasts. State keys and action names must never share a name (they're merged).
+- `src/screens/Quiz.jsx` + `screens/quiz/`: intro → questions (multiple choice or flashcards) →
+  rematch round → results. Combo meter, answer feedback with XP breakdown, explanation and the
+  source snippet, mastery-up moments, sparks, edge flashes, "Combo ×N" title cards. The level-up
+  is held until the results reveal.
+- `src/lib/`: `session.js` (builds sessions, shuffles options), `sound.js` (Web Audio, off by
+  default), `haptics.js` (Android vibration), plus the files above.
 - `src/components/`: `Ambient`, `Button` (`primary`, `deck`, `secondary`, `ghost`), `CountUp`,
-  `FillBar`, `Field`, `icons`, `LevelBadge`, `LevelUpDialog`, `StreakFlame`, `ThemeToggle`,
-  `TiltCard`, `Toaster`, `XpBar`
-- `src/screens/`: `Dashboard`, `DeckPage` (one deck, sample cards), `CreateDeck` + `create/`
-  (PDF flow, manual form, deck ready, reward panel, recent uploads)
-- **Not built on purpose:** the quiz/review screen (a teammate may own it). "Start review" shows a
-  toast for now.
+  `FillBar`, `Field`, `icons`, `LevelBadge`, `LevelUpDialog`, `MasteryGem`, `Sparks`,
+  `StreakFlame`, `Switch`, `ThemeToggle`, `TiltCard`, `Toaster`, `XpBar`, `shell/`
+- `src/screens/`: `Dashboard`, `DeckPage`, `CreateDeck` + `create/`, `Quiz` + `quiz/`, `Stats`,
+  `Profile`, `Settings`.
+- **No dead buttons:** every link and button leads somewhere real with mock data.
 
 ## Layout
 
