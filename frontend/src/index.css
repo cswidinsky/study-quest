@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/*
+  Dark mode is driven by <html data-theme="light|dark">.
+  A small script in index.html sets it before the page paints
+  (saved choice first, otherwise the system setting).
+  This makes `dark:` classes follow that attribute too.
+*/
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+  Design tokens. Each one becomes a Tailwind class:
+  --color-surface -> bg-surface, text-surface, border-surface ...
+  --font-mono     -> font-mono
+  --ease-out      -> ease-out
+*/
+@theme {
+  /* Remove Tailwind's default palette so only our colours exist. */
+  --color-*: initial;
+
+  /* Light values. Dark values override these further down. */
+  --color-background: #f7f5f0;
+  --color-surface: #ffffff;
+  --color-text: #16161a;
+  --color-muted: #6b6a66;
+  --color-border: #e6e2d9;
+
+  /* Same in both themes */
+  --color-accent: #ff6b2c;
+  --color-accent-hover: color-mix(in oklab, #ff6b2c 88%, black);
+  --color-on-accent: #16161a; /* text on accent: white fails contrast */
+  --color-success: #2fb67c;
+  --color-error: #e5484d;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  /* Strong custom curves (the built-in CSS ones feel weak) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-background: #0f1012;
+    --color-surface: #17181b;
+    --color-text: #f2f0ea;
+    --color-muted: #8e8c86;
+    --color-border: #26272b;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Numbers: XP, scores, timers. Usage: className="num" */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
