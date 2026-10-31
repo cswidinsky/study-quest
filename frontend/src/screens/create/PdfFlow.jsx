@@ -9,7 +9,10 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 
 // PDF → quiz, in three phases: pick a file, check the details, watch it generate.
 
-const MAX_BYTES = 20 * 1024 * 1024
+// Matches the backend's 10 MiB request limit (MAX_CONTENT_LENGTH in backend/app.py).
+// That limit counts the whole upload request, so leave a little room for the form data around the file.
+const MAX_MB = 10
+const MAX_BYTES = MAX_MB * 1024 * 1024 - 64 * 1024
 const QUESTION_COUNTS = [5, 10] // the mock writes up to 10 (GENERATED_POOL_SIZE)
 const EASE_OUT = [0.23, 1, 0.32, 1]
 
@@ -19,7 +22,7 @@ function validate(file) {
     const ext = file.name.includes('.') ? file.name.split('.').pop().toUpperCase() : 'non-PDF'
     return `That’s a ${ext} file. StudyQuest reads PDFs for now.`
   }
-  if (file.size > MAX_BYTES) return `That PDF is ${formatBytes(file.size)}. The limit is 20 MB.`
+  if (file.size > MAX_BYTES) return `That PDF is ${formatBytes(file.size)}. The limit is ${MAX_MB} MB.`
   return null
 }
 
@@ -184,7 +187,7 @@ function Dropzone({ onFile }) {
           </>
         )}
       </p>
-      <p className="mt-1 text-sm text-muted">Lecture slides or notes, up to 20 MB</p>
+      <p className="mt-1 text-sm text-muted">Lecture slides or notes, up to {MAX_MB} MB</p>
     </label>
   )
 }
