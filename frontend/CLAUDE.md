@@ -21,7 +21,9 @@ backend in `backend/`.
 - Tailwind CSS v4 via `@tailwindcss/vite`. There is no `tailwind.config.js`; all config lives in
   `src/index.css` (`@theme`, `@custom-variant`, `@utility`).
 - Motion (`motion` package, import from `motion/react`) for animation
-- Later: Supabase (data and auth), deployed on Vercel
+- Database and authentication are pending team agreement. The project plan proposes SQLite
+  without full authentication for the MVP; Supabase is an alternative, not a settled dependency.
+- Deployment target is also pending team agreement; Vercel is an option for the frontend.
 
 ## Design tokens
 

@@ -1,4 +1,4 @@
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useTheme } from '../theme.js'
 
 const OPTIONS = [
@@ -9,6 +9,7 @@ const OPTIONS = [
 
 export default function ThemeToggle() {
   const [theme, setTheme] = useTheme()
+  const reduceMotion = useReducedMotion()
 
   return (
     <div
@@ -33,7 +34,9 @@ export default function ThemeToggle() {
               <motion.span
                 layoutId="theme-pill"
                 className="absolute inset-0 rounded-full bg-background"
-                transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
+                transition={reduceMotion
+                  ? { type: 'tween', duration: 0 }
+                  : { type: 'spring', duration: 0.3, bounce: 0 }}
               />
             )}
             <Icon />

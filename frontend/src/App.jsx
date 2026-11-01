@@ -86,9 +86,9 @@ export default function App() {
                     key={gainId}
                     aria-hidden="true"
                     className="absolute -top-6 right-0 font-medium"
-                    initial={{ opacity: 0, transform: 'translateY(4px)' }}
+                    initial={{ opacity: 0, transform: reduceMotion ? 'none' : 'translateY(4px)' }}
                     animate={{ opacity: 1, transform: 'translateY(0px)' }}
-                    exit={{ opacity: 0, transform: 'translateY(-6px)' }}
+                    exit={{ opacity: 0, transform: reduceMotion ? 'none' : 'translateY(-6px)' }}
                     transition={{ duration: 0.2, ease: EASE_OUT }}
                   >
                     +{XP_PER_CLICK}

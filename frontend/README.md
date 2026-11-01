@@ -1,16 +1,39 @@
-# React + Vite
+# StudyQuest frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React, Vite, Tailwind CSS, and Motion starter. The current screen demonstrates
+theme switching and sample XP; PDF upload, quizzes, and API integration follow later.
+XP values are mock data and are not persisted.
 
-Currently, two official plugins are available:
+## Requirements
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Use Node.js 22.12 or newer (Node.js 24 is verified) with npm.
 
-## React Compiler
+## Install and run
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+From the repository root:
 
-## Expanding the Oxlint configuration
+```sh
+cd frontend
+npm ci
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+Open the development address printed by Vite. No API key or backend is needed
+for this placeholder screen.
+
+## Checks and production preview
+
+Run from `frontend/`:
+
+```sh
+npm run lint
+npm run build
+npm run preview
+```
+
+There is no automated frontend test suite yet. Check light, dark, and system
+themes, plus XP progression with reduced motion enabled and disabled.
+
+Fonts load from Google Fonts, with system font fallbacks when unavailable.
+Database, authentication, and deployment choices need team agreement before
+implementation; see the project plan rather than assuming Supabase is required.
