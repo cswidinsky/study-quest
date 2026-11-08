@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { toggleTheme, useTheme } from '../theme.js'
 
 // One button. The sun swallows its rays and a shadow slides across it to become
@@ -12,6 +12,9 @@ export default function ThemeToggle({ className = '' }) {
   const theme = useTheme()
   const dark = theme === 'dark'
   const maskId = useId()
+  // Reduced motion: the icon swaps instantly instead of morphing (from the team review).
+  const reduceMotion = useReducedMotion()
+  const spring = reduceMotion ? { duration: 0 } : SPRING
 
   function onClick(e) {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -32,7 +35,7 @@ export default function ThemeToggle({ className = '' }) {
         aria-hidden="true"
         initial={false}
         animate={{ rotate: dark ? 40 : 90 }}
-        transition={SPRING}
+        transition={spring}
       >
         <mask id={maskId}>
           <rect width="24" height="24" fill="white" />
@@ -42,7 +45,7 @@ export default function ThemeToggle({ className = '' }) {
             fill="black"
             initial={false}
             animate={dark ? { cx: 16.5, cy: 7.5 } : { cx: 30, cy: -6 }}
-            transition={SPRING}
+            transition={spring}
           />
         </mask>
         <motion.circle
@@ -52,7 +55,7 @@ export default function ThemeToggle({ className = '' }) {
           mask={`url(#${maskId})`}
           initial={false}
           animate={{ r: dark ? 8.5 : 4.5 }}
-          transition={SPRING}
+          transition={spring}
         />
         <g stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           {RAYS.map((angle, i) => (
@@ -65,7 +68,7 @@ export default function ThemeToggle({ className = '' }) {
                 y2="4"
                 initial={false}
                 animate={{ opacity: dark ? 0 : 1, scale: dark ? 0.3 : 1 }}
-                transition={{ ...SPRING, delay: dark ? 0 : 0.08 + i * 0.025 }}
+                transition={reduceMotion ? spring : { ...SPRING, delay: dark ? 0 : 0.08 + i * 0.025 }}
               />
             </g>
           ))}

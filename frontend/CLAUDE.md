@@ -40,11 +40,13 @@ Guardrails that still hold:
 - View Transitions API for screen changes and the theme switch (falls back to an instant swap)
 - No Three.js: the ambient background is CSS + one 2D canvas (cheaper, looks the same here)
 - **Backend in dev:** `vite.config.js` proxies `/api/*` to Flask on `http://localhost:5000`, so the
-  frontend calls relative URLs like `fetch('/api/extract')` and never hits CORS. Production
-  (Vercel) will need its own rewrite or API base URL.
+  frontend calls relative URLs like `fetch('/api/extract')` and never hits CORS. A production
+  deployment will need its own rewrite or API base URL.
 - **Upload limit:** PDFs up to 10 MB (`MAX_MB` in `screens/create/PdfFlow.jsx`), matching the
   backend's 10 MiB `MAX_CONTENT_LENGTH`. Change both together.
-- Later: Supabase (data and auth), deployed on Vercel
+- Database and authentication are pending team agreement. The project plan proposes SQLite
+  without full authentication for the MVP; Supabase is an alternative, not a settled dependency.
+- Deployment target is also pending team agreement; Vercel is an option for the frontend.
 
 ## Palette
 
