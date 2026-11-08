@@ -128,7 +128,7 @@ function AllCaughtUp({ decks, weakCount }) {
             <RefreshIcon className="size-5 text-accent" />
             <span className="flex-1">
               <span className="block font-medium">Rematch weak spots</span>
-              <span className="text-sm text-muted">{plural(weakCount, 'card')} you got wrong last time. Right answers earn a comeback bonus.</span>
+              <span className="text-sm text-muted">{plural(weakCount, 'card')} you got wrong last time. Practise them now (no XP until they’re due again).</span>
             </span>
             <ArrowRightIcon className="size-4 text-muted" />
           </a>
@@ -157,7 +157,7 @@ function AllCaughtUp({ decks, weakCount }) {
 }
 
 // Between the main round and the rematch round.
-export function RematchBreak({ count, onStart, onSkip }) {
+export function RematchBreak({ count, practice, onStart, onSkip }) {
   const rise = useRise()
   useEffect(() => {
     const onKey = (e) => e.key === 'Enter' && document.activeElement?.tagName !== 'BUTTON' && onStart()
@@ -173,7 +173,8 @@ export function RematchBreak({ count, onStart, onSkip }) {
         Rematch round
       </motion.h1>
       <motion.p variants={rise} className="mx-auto mt-2 max-w-md text-lg text-muted">
-        {plural(count, 'card')} you missed, while the answers are fresh. Get one right for a comeback bonus.
+        {plural(count, 'card')} you missed, while the answers are fresh.
+        {practice ? ' This is practice, so there’s no XP.' : ' Get one right for a small comeback bonus, once per card.'}
       </motion.p>
       <motion.div variants={rise} className="mt-8 flex flex-wrap justify-center gap-2">
         <Button size="lg" onClick={onStart} autoFocus>

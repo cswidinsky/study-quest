@@ -7,13 +7,17 @@ import Button from '../../components/Button.jsx'
 import { ArrowRightIcon, FlagIcon, QuoteIcon } from '../../components/icons.jsx'
 
 // After an answer: was it right, what it earned (and why), the explanation,
-// the line from your own notes, and whether the card moved up a mastery level.
-export default function Feedback({ item, deck, answered, onNext, onReport, reported, practice }) {
+// the line from your own notes (and its page), and whether the card moved up a
+// mastery level. Everything here comes from the server's response; any of
+// explanation, sourceSnippet and sourcePage may be missing, and the panel copes.
+export default function Feedback({ deck, answered, onNext, onReport, reported, practice }) {
   const reduce = useReducedMotion()
   const nextRef = useRef(null)
   const { correct, result } = answered
-  const up = masteryIndex(result.masteryAfter) > masteryIndex(result.masteryBefore)
-  const card = item.card
+  // Only celebrate a climb you earned: a missed new card also becomes "Learning", but that is no win.
+  const up = correct && masteryIndex(result.masteryAfter) > masteryIndex(result.masteryBefore)
+  const { explanation, sourceSnippet, sourcePage, correctOption } = result
+  const fileName = deck?.source?.fileName
 
   useEffect(() => {
     const t = setTimeout(() => nextRef.current?.focus({ preventScroll: true }), 50)
@@ -61,31 +65,47 @@ export default function Feedback({ item, deck, answered, onNext, onReport, repor
         </motion.div>
       )}
 
-      {card.explanation && (
+      {!correct && correctOption && (
+        <p className="mt-4 text-[15px]">
+          <span className="text-muted">Answer: </span>
+          <span className="font-medium">{correctOption}</span>
+        </p>
+      )}
+
+      {explanation && (
         <motion.p
           className="mt-4 text-[15px] leading-relaxed"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.25, ease: EASE_CINEMA }}
         >
-          {card.explanation}
+          {explanation}
         </motion.p>
       )}
 
-      {card.sourceSnippet && (
+      {sourceSnippet ? (
         <motion.figure
           className="mt-4 rounded-2xl border border-border bg-background/60 p-4"
           initial={reduce ? { opacity: 0 } : { opacity: 0, transform: 'translateY(8px)' }}
           animate={{ opacity: 1, transform: 'translateY(0px)' }}
           transition={{ duration: 0.5, delay: 0.35, ease: EASE_OUT }}
         >
-          <figcaption className="mb-1.5 flex items-center gap-1.5 text-xs text-muted">
+          <figcaption className="mb-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted">
             <QuoteIcon className="size-3.5" />
-            From your notes{deck?.source?.fileName ? ` · ${deck.source.fileName}` : ''}
+            <span className="whitespace-nowrap">From your notes</span>
+            {sourcePage ? <span className="whitespace-nowrap text-text">· {pageLabel(sourcePage)}</span> : null}
+            {fileName ? <span className="max-w-full min-w-0 truncate">· {fileName}</span> : null}
           </figcaption>
-          <blockquote className="text-sm leading-relaxed text-text/90 italic">“{card.sourceSnippet}”</blockquote>
+          <blockquote className="text-sm leading-relaxed text-text/90 italic">“{sourceSnippet}”</blockquote>
         </motion.figure>
-      )}
+      ) : sourcePage ? (
+        // No quote, but we know where it is: point to the page.
+        <p className="mt-4 flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+          <QuoteIcon className="size-3.5" />
+          See <span className="text-text">{pageLabel(sourcePage)} of your notes</span>
+          {fileName ? <span className="max-w-full min-w-0 truncate">({fileName})</span> : null}
+        </p>
+      ) : null}
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <button
@@ -133,3 +153,6 @@ function XpLine({ correct, result, practice }) {
     </span>
   )
 }
+
+// "Page 3" (sourcePage is the PDF page, 1-based).
+const pageLabel = (page) => `Page ${page}`

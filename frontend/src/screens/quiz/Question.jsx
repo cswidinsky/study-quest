@@ -13,9 +13,10 @@ const DIFFICULTY = { easy: 1, medium: 2, hard: 3 }
 
 // One question: header (deck, topic, difficulty, mastery), then either four options
 // (multiple choice) or a card that flips (flashcards). After answering, the feedback panel.
-export default function Question({ item, deck, mode, answered, onAnswer, onNext, onReport, reported, practice, liveCard }) {
-  const asFlash = mode === 'flash' || !item.options
+// The correct option is unknown here until the server's answer arrives (answered.result).
+export default function Question({ item, deck, flash, pending, answered, onAnswer, onReveal, onNext, onReport, reported, practice, liveCard }) {
   const level = masteryOf(liveCard.review)
+  const difficulty = DIFFICULTY[item.card.difficulty] ? item.card.difficulty : null // may be missing
 
   return (
     <div style={deckStyle(deck)}>
@@ -24,13 +25,15 @@ export default function Question({ item, deck, mode, answered, onAnswer, onNext,
           <span className="size-2 rounded-full bg-(--deck) shadow-[0_0_8px_var(--deck)]" aria-hidden="true" />
           <span className="text-text">{deck?.course.code || deck?.title}</span>
         </span>
-        <span>{item.card.topic}</span>
-        <span className="flex items-center gap-1" title={`Difficulty: ${item.card.difficulty}`}>
-          {[1, 2, 3].map((n) => (
-            <span key={n} className={`h-2.5 w-1 rounded-full ${n <= DIFFICULTY[item.card.difficulty] ? 'bg-(--deck)' : 'bg-border'}`} />
-          ))}
-          <span className="ml-1 capitalize">{item.card.difficulty}</span>
-        </span>
+        {item.card.topic && <span>{item.card.topic}</span>}
+        {difficulty && (
+          <span className="flex items-center gap-1" title={`Difficulty: ${difficulty}`}>
+            {[1, 2, 3].map((n) => (
+              <span key={n} className={`h-2.5 w-1 rounded-full ${n <= DIFFICULTY[difficulty] ? 'bg-(--deck)' : 'bg-border'}`} />
+            ))}
+            <span className="ml-1 capitalize">{difficulty}</span>
+          </span>
+        )}
         <span className="ml-auto">
           <MasteryGem level={level} withLabel className="size-4" />
         </span>
@@ -38,10 +41,10 @@ export default function Question({ item, deck, mode, answered, onAnswer, onNext,
 
       <h2 className="mt-4 text-[22px] leading-snug font-semibold tracking-tight text-balance sm:text-[28px]">{item.card.question}</h2>
 
-      {asFlash ? (
-        <FlashCard item={item} answered={answered} onAnswer={onAnswer} />
+      {flash ? (
+        <FlashCard item={item} pending={pending} answered={answered} onAnswer={onAnswer} onReveal={onReveal} />
       ) : (
-        <Choices item={item} answered={answered} onAnswer={onAnswer} />
+        <Choices item={item} pending={pending} answered={answered} onAnswer={onAnswer} />
       )}
 
       <AnimatePresence>
@@ -64,7 +67,9 @@ export default function Question({ item, deck, mode, answered, onAnswer, onNext,
 
 /* ——— Multiple choice ——— */
 
-function Choices({ item, answered, onAnswer }) {
+function Choices({ item, pending, answered, onAnswer }) {
+  // Which option was right comes from the server's response, never from the card.
+  const correctIndex = answered?.result.correctIndex ?? null
   return (
     <ol className="mt-6 grid gap-2.5 sm:mt-8 sm:gap-3">
       {item.options.map((text, i) => (
@@ -73,8 +78,10 @@ function Choices({ item, answered, onAnswer }) {
             index={i}
             text={text}
             answered={answered}
-            isCorrect={i === item.correctIndex}
-            onPick={(origin) => onAnswer({ correct: i === item.correctIndex, chosen: i, origin })}
+            checking={pending?.chosen === i}
+            locked={Boolean(pending)}
+            isCorrect={i === correctIndex}
+            onPick={(origin) => onAnswer({ chosen: i, origin })}
           />
         </li>
       ))}
@@ -82,15 +89,15 @@ function Choices({ item, answered, onAnswer }) {
   )
 }
 
-function Option({ index, text, answered, isCorrect, onPick }) {
+function Option({ index, text, answered, checking, locked, isCorrect, onPick }) {
   const reduce = useReducedMotion()
   const ref = useRef(null)
   const [ripple, setRipple] = useState(null)
   const chosen = answered?.chosen === index
-  const state = !answered ? 'idle' : isCorrect ? (chosen ? 'right' : 'reveal') : chosen ? 'wrong' : 'dim'
+  const state = !answered ? (checking ? 'checking' : 'idle') : isCorrect ? (chosen ? 'right' : 'reveal') : chosen ? 'wrong' : 'dim'
 
   function pick(e) {
-    if (answered) return
+    if (answered || locked) return
     const rect = ref.current.getBoundingClientRect()
     const x = e.clientX || rect.left + rect.width / 2
     const y = e.clientY || rect.top + rect.height / 2
@@ -100,6 +107,8 @@ function Option({ index, text, answered, isCorrect, onPick }) {
 
   const styles = {
     idle: 'border-border bg-surface/80 hover:border-(--deck)/60 hover:bg-surface',
+    // Picked, waiting for the server's verdict (usually a blink).
+    checking: 'border-(--deck) bg-surface shadow-[0_0_0_1px_var(--deck)] motion-safe:animate-pulse',
     right: 'border-success bg-surface shadow-[0_0_0_1px_var(--color-success),0_12px_40px_-12px_var(--color-success)]',
     reveal: 'border-success/70 bg-surface',
     wrong: 'border-error bg-surface',
@@ -111,8 +120,9 @@ function Option({ index, text, answered, isCorrect, onPick }) {
       ref={ref}
       type="button"
       onClick={pick}
-      disabled={Boolean(answered) && !chosen && !isCorrect}
-      aria-disabled={Boolean(answered)}
+      disabled={(Boolean(answered) && !chosen && !isCorrect) || (locked && !checking)}
+      aria-disabled={Boolean(answered) || locked}
+      aria-busy={checking || undefined}
       aria-keyshortcuts={`${index + 1} ${LETTERS[index]}`}
       className={`relative flex w-full items-center gap-3.5 overflow-hidden rounded-2xl border px-4 py-3.5 text-left text-[15px] transition-[border-color,background-color,opacity,box-shadow,scale] duration-200 ease-out sm:px-5 sm:py-4 sm:text-base ${
         !answered ? 'active:scale-[0.985]' : ''
@@ -175,14 +185,31 @@ function Option({ index, text, answered, isCorrect, onPick }) {
 
 /* ——— Flashcard: flip to see the answer, then say how it went ——— */
 
-function FlashCard({ item, answered, onAnswer }) {
+// The back of the card comes from the server when you flip (api.revealAnswer);
+// then you grade yourself and the server records it.
+function FlashCard({ pending, answered, onAnswer, onReveal }) {
   const reduce = useReducedMotion()
   const [flipped, setFlipped] = useState(false)
+  const [back, setBack] = useState(null) // the answer text, once revealed
   const flipRef = useRef(null)
 
   useEffect(() => {
     if (!answered) flipRef.current?.focus()
   }, [answered])
+
+  async function flip() {
+    if (flipped) return
+    setFlipped(true)
+    try {
+      const { answer } = await onReveal()
+      setBack(answer)
+    } catch (error) {
+      setBack(`Couldn’t load the answer: ${error.message}`)
+    }
+  }
+
+  const grade = (got, origin = null) => onAnswer({ selfGrade: got ? 'got' : 'missed', origin })
+  const canGrade = flipped && back !== null && !answered && !pending
 
   // Keyboard: Space/Enter flips; then 1 = missed it, 2 = got it.
   useEffect(() => {
@@ -190,16 +217,14 @@ function FlashCard({ item, answered, onAnswer }) {
     const onKey = (e) => {
       if (!flipped && (e.key === ' ' || e.key === 'Enter')) {
         e.preventDefault()
-        setFlipped(true)
-      } else if (flipped && (e.key === '1' || e.key === '2')) {
-        onAnswer({ correct: e.key === '2', chosen: null, origin: null })
+        flip()
+      } else if (canGrade && (e.key === '1' || e.key === '2')) {
+        grade(e.key === '2')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [flipped, answered, onAnswer])
-
-  const back = item.card.options ? item.card.options[item.card.correctIndex] : item.card.answer
+  })
 
   return (
     <div className="mt-6 sm:mt-8">
@@ -212,7 +237,7 @@ function FlashCard({ item, answered, onAnswer }) {
           <button
             ref={flipRef}
             type="button"
-            onClick={() => setFlipped(true)}
+            onClick={flip}
             className="panel col-start-1 row-start-1 flex flex-col items-center justify-center gap-3 rounded-3xl p-6 text-center [backface-visibility:hidden]"
             aria-label="Show the answer"
             tabIndex={flipped ? -1 : 0}
@@ -226,24 +251,24 @@ function FlashCard({ item, answered, onAnswer }) {
             aria-hidden={!flipped}
           >
             <p className="text-xs text-muted">Answer</p>
-            <p className="mt-2 text-lg font-medium">{back}</p>
+            <p className="mt-2 text-lg font-medium">{back ?? <span className="text-muted motion-safe:animate-pulse">Loading…</span>}</p>
           </div>
         </motion.div>
       </div>
 
-      {flipped && !answered && (
+      {canGrade && (
         <motion.div
           className="mt-4 grid grid-cols-2 gap-2.5"
           initial={{ opacity: 0, transform: 'translateY(10px)' }}
           animate={{ opacity: 1, transform: 'translateY(0px)' }}
           transition={{ duration: 0.4, ease: EASE_OUT }}
         >
-          <Button variant="secondary" size="lg" onClick={() => onAnswer({ correct: false, chosen: null, origin: null })}>
+          <Button variant="secondary" size="lg" onClick={() => grade(false)}>
             Missed it <span className="num text-xs text-muted">1</span>
           </Button>
           <Button
             size="lg"
-            onClick={(e) => onAnswer({ correct: true, chosen: null, origin: { x: e.clientX, y: e.clientY } })}
+            onClick={(e) => grade(true, { x: e.clientX, y: e.clientY })}
             className="bg-success hover:bg-success hover:brightness-110"
           >
             Got it <span className="num text-xs opacity-70">2</span>

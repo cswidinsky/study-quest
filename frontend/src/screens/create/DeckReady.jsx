@@ -18,7 +18,9 @@ export default function DeckReady({ deck, cards, onAnother }) {
   const fromPdf = deck.source.type === 'pdf'
   const preview = cards.slice(0, 3)
   // What learning these cards is worth (first time, before combos and flashcard discounts).
-  const worth = cards.reduce((s, c) => s + XP_RULES.baseByDifficulty[c.difficulty], 0)
+  // A card with no difficulty counts as medium.
+  const base = XP_RULES.baseByDifficulty
+  const worth = cards.reduce((s, c) => s + (base[c.difficulty] ?? base.medium), 0)
 
   return (
     <section className="panel rounded-3xl p-4 sm:p-6" aria-labelledby="ready-heading" style={deckStyle(deck)}>
@@ -75,13 +77,18 @@ export default function DeckReady({ deck, cards, onAnother }) {
       </motion.div>
 
       <h3 className="mt-7 text-sm font-medium">
-        {preview.length < cards.length ? `First ${preview.length} of ${cards.length} cards` : 'Cards'}
+        {preview.length < cards.length ? `First ${preview.length} of ${cards.length} questions` : 'Questions'}
+        <span className="ml-2 font-normal text-muted">Answers are revealed in the quiz</span>
       </h3>
       <motion.ul className="mt-3 space-y-2" initial="hidden" animate="show" variants={stagger(0.08, 0.7)}>
         {preview.map((card) => (
-          <motion.li key={card.question} variants={rise} className="rounded-2xl border border-border bg-surface/80 px-4 py-3.5">
+          <motion.li key={card.id} variants={rise} className="rounded-2xl border border-border bg-surface/80 px-4 py-3.5">
             <p className="text-sm font-medium">{card.question}</p>
-            <p className="mt-1 text-sm text-muted">{card.answer}</p>
+            <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted">
+              {card.topic && <span>{card.topic}</span>}
+              {card.difficulty && <span className="capitalize">{card.difficulty}</span>}
+              {card.sourcePage && <span>Page {card.sourcePage} of your notes</span>}
+            </p>
           </motion.li>
         ))}
       </motion.ul>

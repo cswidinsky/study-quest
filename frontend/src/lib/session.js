@@ -1,7 +1,9 @@
 import { isDue, isNewCard } from './srs.js'
 import { isWeak } from './selectors.js'
 
-// Builds a quiz session: which cards, in what order, with shuffled options.
+// SERVER-SIDE LOGIC: builds a quiz session (which cards, in what order, with shuffled
+// options). It needs the answer key to shuffle, so only the mock server
+// (src/mocks/server.js) uses it. Flask should do the same when it creates a session.
 //   kind 'due'     → every card due today, across all decks (exam decks first)
 //   kind 'deck'    → one deck: its due cards, then up to 10 new ones;
 //                    if neither, a practice run of the whole deck (no XP)
@@ -20,7 +22,7 @@ const shuffle = (list) => {
 }
 
 // Shuffle a multiple-choice card's options so position can't be memorised.
-function toItem(card) {
+export function toItem(card) {
   if (!card.options) return { card, options: null, correctIndex: null }
   const order = shuffle(card.options.map((_, i) => i))
   return { card, options: order.map((i) => card.options[i]), correctIndex: order.indexOf(card.correctIndex) }

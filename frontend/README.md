@@ -1,8 +1,10 @@
 # StudyQuest frontend
 
-React, Vite, Tailwind CSS, and Motion starter. The current screen demonstrates
-theme switching and sample XP; PDF upload, quizzes, and API integration follow later.
-XP values are mock data and are not persisted.
+React, Vite, Tailwind CSS, and Motion. The app runs end to end on mock data: PDF upload,
+generated questions, the quiz, results, XP and levels. A mock server in `src/mocks/` stands in
+for Flask (it holds the answers and calculates XP) and saves progress in the browser;
+`src/api.js` is where each call will switch to the real API. In dev, `/api` is proxied to
+Flask on port 5000.
 
 ## Requirements
 
@@ -19,7 +21,7 @@ npm run dev
 ```
 
 Open the development address printed by Vite. No API key or backend is needed
-for this placeholder screen.
+to run the app on mock data.
 
 ## Checks and production preview
 

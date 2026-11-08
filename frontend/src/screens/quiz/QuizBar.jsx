@@ -8,7 +8,7 @@ import { BoltIcon, CloseIcon, SoundOffIcon, SoundOnIcon } from '../../components
 export default function QuizBar({ done, total, combo, sessionXp, sound, onToggleSound, onClose, roundLabel }) {
   const progress = total ? done / total : 0
   return (
-    <div className="sticky top-0 z-30 border-b border-border bg-background/90">
+    <div className="sticky top-0 z-30 border-b border-border bg-background/95">
       <div className="mx-auto flex h-16 max-w-3xl items-center gap-3 px-4 sm:gap-4 sm:px-6">
         <button
           type="button"

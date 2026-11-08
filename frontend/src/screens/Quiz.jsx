@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useGame } from '../state/game.js'
-import { recordAnswer as gradeAnswer, reportQuestion } from '../api.js'
-import { buildSession } from '../lib/session.js'
+import { rematchItems, revealAnswer, startSession, submitAnswer } from '../api.js'
 import { comboMultiplier } from '../lib/levels.js'
 import { isWeak } from '../lib/selectors.js'
 import { EASE_CINEMA } from '../lib/motion.js'
@@ -10,6 +9,7 @@ import { play } from '../lib/sound.js'
 import { buzz } from '../lib/haptics.js'
 import { navigate } from '../lib/router.js'
 import Sparks from '../components/Sparks.jsx'
+import Button from '../components/Button.jsx'
 import QuizBar from './quiz/QuizBar.jsx'
 import Question from './quiz/Question.jsx'
 import Intro, { RematchBreak } from './quiz/Intro.jsx'
@@ -17,8 +17,11 @@ import Results from './quiz/Results.jsx'
 
 // The quiz (#16). Routes: #/review (everything due), #/review/deck/<id>, #/review/rematch.
 // Flow: intro → questions → rematch round (the ones you missed) → results.
-// Every answer is graded by api.recordAnswer (the "server") and saved straight away,
-// so leaving halfway keeps what you earned. The level-up waits for the results screen.
+//
+// The browser never knows the right answer in advance. The server (api.js) builds
+// the session and shuffles the options; each pick is sent with api.submitAnswer,
+// and the response says right/wrong, which option was correct, the explanation,
+// the XP and the card's new memory state. The level-up waits for the results screen.
 
 const SWIPE = {
   enter: { opacity: 0, transform: 'translateX(56px)', filter: 'blur(6px)' },
@@ -26,31 +29,56 @@ const SWIPE = {
   exit: { opacity: 0, transform: 'translateX(-56px)', filter: 'blur(6px)' },
 }
 
-// Waits for the saved data, then starts a session (built once, when it mounts).
-export default function Quiz(props) {
+// Waits for the dashboard data, asks the server for a session, then runs it.
+export default function Quiz({ kind = 'due', id }) {
   const { rawData, data } = useGame()
-  if (!rawData || !data) return <div className="min-h-dvh" aria-busy="true" />
-  return <QuizRun {...props} />
+  const [loaded, setLoaded] = useState(null) // { session } or { error }
+
+  useEffect(() => {
+    let live = true
+    startSession({ kind, deckId: id })
+      .then((session) => live && setLoaded({ session }))
+      .catch((error) => live && setLoaded({ error: error.message }))
+    return () => {
+      live = false
+    }
+  }, [kind, id])
+
+  if (loaded?.error) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 pt-16 sm:px-6">
+        <h1 className="text-[32px] font-semibold tracking-tight">Couldn’t start the quiz</h1>
+        <p className="mt-2 text-muted">{loaded.error}</p>
+        <Button as="a" href="#/" variant="secondary" className="mt-6">
+          Back to dashboard
+        </Button>
+      </div>
+    )
+  }
+  if (!rawData || !data || !loaded) return <div className="min-h-dvh" aria-busy="true" aria-label="Loading quiz" />
+  return <QuizRun initialSession={loaded.session} />
 }
 
-function QuizRun({ kind = 'due', id }) {
+function QuizRun({ initialSession }) {
   const game = useGame()
-  const { rawData, data, recordAnswer, holdCelebrations, updateSettings, reportCard, showToast } = game
+  const { rawData, data, applyAnswer, holdCelebrations, updateSettings, reportCard, showToast } = game
   const reduce = useReducedMotion()
 
-  const [session, setSession] = useState(() => buildSession({ kind, deckId: id, cards: rawData.cards, decks: data.decks }))
+  const [session, setSession] = useState(initialSession)
   const [phase, setPhase] = useState('intro') // intro | play | rematch-break | results
-  const [mode, setMode] = useState(() => (session.items.some((i) => i.options) ? 'mc' : 'flash'))
-  const [queue, setQueue] = useState(session.items)
+  const [mode, setMode] = useState(() => (initialSession.items.some((i) => i.options) ? 'mc' : 'flash'))
+  const [queue, setQueue] = useState(initialSession.items)
   const [index, setIndex] = useState(0)
   const [round, setRound] = useState('main') // main | rematch
-  const [answered, setAnswered] = useState(null)
+  const [pending, setPending] = useState(null) // { chosen } while the server grades
+  const [answered, setAnswered] = useState(null) // { chosen, correct, result }
   const [log, setLog] = useState([])
   const [missed, setMissed] = useState([])
   const [combo, setCombo] = useState(0)
   const [bestCombo, setBestCombo] = useState(0)
   const [effects, setEffects] = useState({ sparks: null, flash: null, comboTier: null })
   const [startStreak, setStartStreak] = useState(data.user.streak) // to spot "lit today!" on the results
+  const shownAt = useRef(0) // when the current question appeared (for the answer log)
 
   // Hold the level-up until results; release it a moment after the results reveal.
   useEffect(() => {
@@ -63,32 +91,56 @@ function QuizRun({ kind = 'due', id }) {
     return () => clearTimeout(t)
   }, [phase, holdCelebrations])
 
+  useEffect(() => {
+    shownAt.current = Date.now()
+  }, [index, round, phase])
+
   const item = queue[index]
   const liveCard = item && rawData?.cards.find((c) => c.id === item.card.id)
   const deck = item && data?.decks.find((d) => d.id === item.card.deckId)
+  const flash = mode === 'flash' || !item?.options
 
+  // Send the pick to the server and react to its verdict.
+  // Multiple choice: { chosen: optionIndex }. Flashcards: { selfGrade: 'got' | 'missed' }.
   const answer = useCallback(
-    ({ correct, chosen, origin }) => {
-      if (answered || !liveCard) return
-      const nextCombo = correct ? combo + 1 : 0
-      const selfGraded = mode === 'flash' || !item.options
-      const result = gradeAnswer(liveCard, { correct, rematch: round === 'rematch', selfGraded, combo: nextCombo, firstTry: round === 'main' })
-      recordAnswer({ cardId: liveCard.id, correct, result })
+    async ({ chosen = null, selfGrade = null, origin = null }) => {
+      if (answered || pending || !item) return
+      setPending({ chosen })
+      let result
+      try {
+        result = await submitAnswer(session.sessionId, {
+          cardId: item.card.id,
+          chosenIndex: selfGrade ? null : chosen,
+          selfGrade,
+          mode: flash ? 'flash' : 'mc',
+          timeTakenMs: Date.now() - shownAt.current,
+        })
+      } catch (error) {
+        showToast({ kind: 'info', message: `Couldn’t check that answer: ${error.message}` })
+        return
+      } finally {
+        setPending(null)
+      }
 
+      applyAnswer(result)
+      const { correct } = result
       setAnswered({ chosen, correct, result })
-      setCombo(nextCombo)
-      setBestCombo((b) => Math.max(b, nextCombo))
-      setLog((l) => [...l, { card: item.card, correct, round, xp: result.xp, reason: result.reason, masteryBefore: result.masteryBefore, masteryAfter: result.masteryAfter }])
+      setBestCombo((b) => Math.max(b, result.combo))
+      setLog((l) => [
+        ...l,
+        { card: item.card, correct, round, xp: result.xp, reason: result.reason, masteryBefore: result.masteryBefore, masteryAfter: result.masteryAfter },
+      ])
       if (!correct && round === 'main') setMissed((m) => [...m, item])
 
       // Sound, vibration and light
-      const tierUp = correct && comboMultiplier(nextCombo) > comboMultiplier(combo)
-      play(correct ? 'correct' : 'wrong', { combo: nextCombo })
+      const tierUp = correct && comboMultiplier(result.combo) > comboMultiplier(combo)
+      setCombo(result.combo)
+      play(correct ? 'correct' : 'wrong', { combo: result.combo })
       buzz(correct ? 'correct' : 'wrong')
       setEffects({
         sparks: correct && origin && !reduce ? { ...origin, key: Date.now() } : null,
         flash: { kind: correct ? 'right' : 'wrong', key: Date.now() },
-        comboTier: tierUp ? { mult: comboMultiplier(nextCombo), key: Date.now() } : null,
+        comboTier: tierUp ? { mult: comboMultiplier(result.combo), key: Date.now() } : null,
       })
       if (tierUp) {
         setTimeout(() => {
@@ -97,8 +149,10 @@ function QuizRun({ kind = 'due', id }) {
         }, 180)
       }
     },
-    [answered, liveCard, combo, mode, item, round, recordAnswer, reduce],
+    [answered, pending, item, session.sessionId, flash, showToast, applyAnswer, round, combo, reduce],
   )
+
+  const reveal = useCallback(() => revealAnswer(session.sessionId, item.card.id), [session.sessionId, item])
 
   const next = useCallback(() => {
     setAnswered(null)
@@ -119,43 +173,50 @@ function QuizRun({ kind = 'due', id }) {
         if (e.key === 'Enter' && document.activeElement?.tagName !== 'BUTTON') next()
         return
       }
-      if (mode === 'flash' || !item?.options) return
+      if (flash) return
       const i = ['1', '2', '3', '4'].indexOf(e.key) >= 0 ? Number(e.key) - 1 : ['a', 'b', 'c', 'd'].indexOf(e.key.toLowerCase())
-      if (i >= 0 && i < item.options.length) answer({ correct: i === item.correctIndex, chosen: i, origin: null })
+      if (i >= 0 && i < item.options.length) answer({ chosen: i })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, answered, mode, item, answer, next])
+  }, [phase, answered, flash, item, answer, next])
 
-  const startRematch = useCallback(
-    (items = missed) => {
-      const reshuffled = buildSession({ kind: 'rematch', cardIds: items.map((i) => i.card.id), cards: rawData.cards, decks: data.decks }).items
-      setQueue(reshuffled)
+  // The rematch round: the cards you missed, options reshuffled by the server.
+  async function startRematch() {
+    try {
+      const items = await rematchItems(session.sessionId, missed.map((i) => i.card.id))
+      setQueue(items)
       setIndex(0)
       setRound('rematch')
       setCombo(0)
       setAnswered(null)
       setPhase('play')
-    },
-    [missed, rawData, data],
-  )
+    } catch (error) {
+      showToast({ kind: 'info', message: error.message })
+      setPhase('results')
+    }
+  }
 
-  // "Rematch N missed" on the results screen: a fresh mini-session of those cards.
-  const rematchFromResults = () => {
+  // "Rematch N missed" on the results screen: a new practice session of those cards.
+  async function rematchFromResults() {
     const ids = log.filter((l) => l.round === 'main' && !l.correct).map((l) => l.card.id)
-    const fresh = buildSession({ kind: 'rematch', cardIds: ids, cards: rawData.cards, decks: data.decks })
-    setLog([])
-    setMissed([])
-    setBestCombo(0)
-    setQueue(fresh.items)
-    setIndex(0)
-    setRound('main')
-    setCombo(0)
-    setAnswered(null)
-    setSession({ ...fresh, title: 'Rematch' })
-    setStartStreak(data.user.streak)
-    holdCelebrations(true)
-    setPhase('play')
+    try {
+      const fresh = await startSession({ kind: 'rematch', cardIds: ids })
+      setSession({ ...fresh, title: 'Rematch' })
+      setLog([])
+      setMissed([])
+      setBestCombo(0)
+      setQueue(fresh.items)
+      setIndex(0)
+      setRound('main')
+      setCombo(0)
+      setAnswered(null)
+      setStartStreak(data.user.streak)
+      holdCelebrations(true)
+      setPhase('play')
+    } catch (error) {
+      showToast({ kind: 'info', message: error.message })
+    }
   }
 
   function endSession() {
@@ -163,10 +224,13 @@ function QuizRun({ kind = 'due', id }) {
     else navigate('/')
   }
 
-  function report() {
-    reportCard(item.card.id)
-    reportQuestion(item.card.id)
-    showToast({ kind: 'info', message: 'Thanks. This question is flagged for a closer look.' })
+  async function report() {
+    try {
+      await reportCard(item.card.id)
+      showToast({ kind: 'info', message: 'Thanks. This question is flagged for a closer look.' })
+    } catch (error) {
+      showToast({ kind: 'info', message: error.message })
+    }
   }
 
   const weakCount = useMemo(() => rawData?.cards.filter(isWeak).length ?? 0, [rawData])
@@ -175,7 +239,6 @@ function QuizRun({ kind = 'due', id }) {
     updateSettings({ sound: !sound })
     if (!sound) play('tap', { force: true })
   }
-
 
   return (
     <div className="min-h-dvh">
@@ -191,9 +254,7 @@ function QuizRun({ kind = 'due', id }) {
           roundLabel={round === 'rematch' ? 'Rematch round' : session.title}
         />
       )}
-      {phase === 'intro' && (
-        <IntroBar sound={sound} onToggleSound={toggleSound} />
-      )}
+      {phase === 'intro' && <IntroBar sound={sound} onToggleSound={toggleSound} />}
 
       {phase === 'intro' && (
         <Intro session={session} decks={data.decks} mode={mode} onMode={setMode} onStart={() => setPhase('play')} weakCount={weakCount} />
@@ -213,9 +274,11 @@ function QuizRun({ kind = 'due', id }) {
               <Question
                 item={item}
                 deck={deck}
-                mode={mode}
+                flash={flash}
+                pending={pending}
                 answered={answered}
                 onAnswer={answer}
+                onReveal={reveal}
                 onNext={next}
                 onReport={report}
                 reported={data.reported?.includes(item.card.id)}
@@ -227,7 +290,9 @@ function QuizRun({ kind = 'due', id }) {
         </div>
       )}
 
-      {phase === 'rematch-break' && <RematchBreak count={missed.length} onStart={() => startRematch()} onSkip={() => setPhase('results')} />}
+      {phase === 'rematch-break' && (
+        <RematchBreak count={missed.length} practice={session.practice} onStart={startRematch} onSkip={() => setPhase('results')} />
+      )}
 
       {phase === 'results' && (
         <Results

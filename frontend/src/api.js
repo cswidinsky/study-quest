@@ -1,57 +1,69 @@
-// The one place the app talks to "the server". Right now every function is a
-// mock with a short delay. To connect Flask, replace each body with a fetch()
-// that returns the same shape. Each has a TODO(backend) naming its endpoint.
+// The one place the app talks to "the server".
+// Right now every function calls the mock server (src/mocks/server.js) after a
+// short delay, so loading states are real. To connect Flask, replace each body
+// with a fetch() to the endpoint in its TODO(backend) note, returning the same
+// shape. In dev, Vite proxies /api to Flask (see vite.config.js).
+//
+// Rules the team agreed:
+//   - The browser never sees correct answers before answering, and never grades.
+//     It sends the chosen option; the server answers right/wrong, the correct
+//     option, the explanation, the XP and the card's new memory state.
+//   - Errors come back as { "error": "message" }. Every function here throws an
+//     Error whose .message is that text, so screens can show it as-is.
 
-import {
-  buildGeneratedDeck,
-  buildManualDeck,
-  dashboardResponse,
-  generationKeywords,
-  generationStages,
-} from './mocks/data.js'
-import { xpForAnswer } from './lib/levels.js'
-import { daysSince, isDue, isNewCard, masteryOf, schedule } from './lib/srs.js'
+import { generationKeywords, generationStages, GENERATED_POOL_SIZE } from './mocks/data.js'
+import * as server from './mocks/server.js'
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// TODO(backend): GET /api/me/dashboard → { user, activity, decks, cards }
-export async function getDashboard() {
-  await wait(450)
-  return structuredClone(dashboardResponse)
+// Simulates a network round trip to the mock server.
+async function call(ms, handler) {
+  await wait(ms)
+  return handler()
 }
 
-// TODO(backend): POST /api/reviews
-// Body: { cardId, sessionId, answeredAt, correct, chosenIndex, mode, rematch, timeTakenMs, combo }
-// The SERVER decides the XP and the card's next review, and returns them.
-// This mock runs the same maths locally (synchronously, so the quiz can react instantly).
-export function recordAnswer(card, { correct, rematch = false, selfGraded = false, combo = 0, firstTry = true, now = Date.now() }) {
-  const before = card.review
-  const { xp, reason, parts } = xpForAnswer({
-    correct,
-    firstTry,
-    wasDue: isDue(card, now),
-    isNew: isNewCard(card),
-    wasWrongLastTime: before.lastResult === 'wrong',
-    difficulty: card.difficulty,
-    daysSinceLastReview: daysSince(before.lastReviewedAt, now),
-    selfGraded,
-    combo,
-  })
-  // A practice answer on a card that isn't due doesn't move its schedule.
-  const practice = !isDue(card, now) && !isNewCard(card)
-  const review = schedule(before, { correct, difficulty: card.difficulty, rematch: rematch || practice, now })
-  return {
-    xp,
-    reason,
-    parts,
-    review,
-    masteryBefore: masteryOf(before),
-    masteryAfter: masteryOf(review),
-  }
+// TODO(backend): GET /api/me/dashboard → { user, activity, decks, cards, reported }
+// Cards are public: { id, deckId, type, question, topic, difficulty?, sourcePage?, review }.
+export function getDashboard() {
+  return call(350, () => server.getDashboard())
 }
 
-// TODO(backend): POST /api/decks/generate (multipart PDF) → { jobId }, then poll GET /api/jobs/:id
-// → { status, stageIndex, progress, result: { deck, cards } }
+// TODO(backend): POST /api/sessions { kind: 'due'|'deck'|'rematch', deckId?, cardIds? }
+// → { sessionId, kind, title, practice, deckId, items: [{ card, options }] }
+// The server picks the cards and shuffles each card's options. No answers included.
+export function startSession({ kind, deckId, cardIds } = {}) {
+  return call(250, () => server.startSession({ kind, deckId, cardIds }))
+}
+
+// TODO(backend): POST /api/sessions/:id/rematch { cardIds } → [{ card, options }] (options reshuffled)
+export function rematchItems(sessionId, cardIds) {
+  return call(150, () => server.rematchItems(sessionId, cardIds))
+}
+
+// TODO(backend): POST /api/sessions/:id/answers
+// Body: { cardId, chosenIndex } (multiple choice) or { cardId, selfGrade: 'got'|'missed' } (flashcard),
+//       plus { mode, timeTakenMs } for the answer log.
+// → { correct, correctIndex, correctOption, explanation, sourceSnippet, sourcePage,
+//     xp, reason, parts, combo, masteryBefore, masteryAfter, leveledUp,
+//     card, user: { xp, streak }, activity, deck }
+export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade = null }) {
+  return call(120, () => server.submitAnswer(sessionId, { cardId, chosenIndex, selfGrade }))
+}
+
+// TODO(backend): GET /api/sessions/:id/cards/:cardId/answer → { answer }
+// Flashcards only: the back of the card, shown before you grade yourself.
+export function revealAnswer(sessionId, cardId) {
+  return call(100, () => server.revealAnswer(sessionId, cardId))
+}
+
+// TODO(backend): GET /api/cards/:id/answer → { answer, explanation, sourcePage }
+// For browsing a deck's cards outside a quiz.
+export function getCardAnswer(cardId) {
+  return call(150, () => server.getCardAnswer(cardId))
+}
+
+// TODO(backend): POST /api/decks/generate (multipart: file, title, course, questionCount) → { jobId },
+// then poll GET /api/jobs/:id → { status, stageIndex, progress, result: { deck, cards } }
 export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) {
   return new Promise((resolve, reject) => {
     const total = generationStages.reduce((sum, stage) => sum + stage.ms, 0)
@@ -73,7 +85,11 @@ export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) 
 
       if (progress >= 1) {
         clearInterval(timer)
-        resolve(buildGeneratedDeck({ fileName: file.name, ...options }))
+        try {
+          resolve(server.saveGeneratedDeck({ fileName: file.name, ...options }))
+        } catch (error) {
+          reject(error)
+        }
       }
     }, 100)
 
@@ -84,17 +100,24 @@ export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) 
   })
 }
 
-// TODO(backend): POST /api/decks with { title, course, cards: [{ question, answer }] } → { deck, cards }
-export async function createDeck(payload) {
-  await wait(500)
-  return buildManualDeck(payload)
+// TODO(backend): POST /api/decks { title, course, cards: [{ question, answer }] } → { deck, cards }
+export function createDeck(payload) {
+  return call(500, () => server.createManualDeck(payload))
 }
 
-// TODO(backend): POST /api/cards/:id/report with { reason } → 204
-export async function reportQuestion() {
-  await wait(150)
-  return { ok: true }
+// TODO(backend): PATCH /api/me { firstName, lastName } → user
+export function updateProfile(patch) {
+  return call(200, () => server.updateProfile(patch))
 }
 
-export { generationKeywords, generationStages }
-export { GENERATED_POOL_SIZE } from './mocks/data.js'
+// TODO(backend): POST /api/cards/:id/report → 204
+export function reportQuestion(cardId) {
+  return call(150, () => server.reportQuestion(cardId))
+}
+
+// Demo only (no backend equivalent): wipe the mock server's saved data.
+export function resetDemo() {
+  return call(0, () => server.resetDemo())
+}
+
+export { generationKeywords, generationStages, GENERATED_POOL_SIZE }

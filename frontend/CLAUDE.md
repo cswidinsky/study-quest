@@ -121,45 +121,60 @@ are always emitted). Use the Tailwind classes, never raw hex. Tailwind's default
 The owner of this folder also owns the quiz screen (#16), XP and leveling (#19), and
 gamification (#6, #20).
 
-## XP, mastery and the "server" boundary
+## The server boundary (agreed with the team)
 
-- **`src/lib/levels.js` is the single source of truth for XP** (`xpForAnswer`, `XP_RULES`,
-  `memoryBonus`, `comboMultiplier`, levels). XP rewards learning only: first-try correct answers on
-  due or new cards; more for harder cards and longer memory; combos up to ×3; flashcards ×0.75;
-  practice (not due) earns 0; a one-off +3 "comeback" for fixing a card you missed. Creating decks
-  earns nothing. **The server must calculate the real XP**; the browser copy is for the demo.
-- **`src/lib/srs.js`**: spaced repetition (`schedule`) and per-card mastery levels
-  (New → Learning → Familiar → Strong → Mastered by interval: 0 / <3 / 3–9 / 10–20 / 21+ days).
-  Also server-owned in production.
-- `api.recordAnswer(card, …)` stands in for `POST /api/reviews`: it returns `{ xp, review,
-  masteryBefore, masteryAfter }`. Components never compute XP themselves.
+- **Flask keeps the correct answers and calculates scores and XP.** The browser never sees
+  `correctIndex`, `answer`, `explanation` or `sourceSnippet` before an answer is graded, and never
+  grades anything. The quiz sends the chosen option through `api.submitAnswer`; the response says
+  right/wrong, the correct option, the explanation, snippet, page, XP and the card's new state.
+- Until Flask is live, **`src/mocks/server.js` plays the backend**: it owns the data (saved in
+  localStorage, key `studyquest:mock-db:v1`), builds sessions and shuffles options
+  (`lib/session.js`), grades, applies XP and the schedule. Only `src/api.js` imports it, and every
+  `api.js` function names the Flask endpoint it stands in for (`TODO(backend)`).
+- **`src/lib/levels.js`** holds the XP rules (`xpForAnswer`), **`src/lib/srs.js`** the schedule and
+  mastery levels. Both are server logic, written to be ported to Flask as-is.
+- XP rules: first-attempt correct answers on cards that were due or new **when the session
+  started**; more for harder cards and longer memory; combos up to ×3 (counted by the server);
+  flashcards ×0.75; practice (not due) earns 0; **comeback** +3 only for a card missed and then
+  fixed in the same session, once per card per session, never on practice cards. Creating
+  decks earns nothing.
+- Card format the frontend expects (public part): `id, deckId, type, question, topic,
+  difficulty?, sourcePage?, review`; quiz items add `options` (no correct index). Answer
+  responses add `correctIndex, correctOption, explanation?, sourceSnippet?, sourcePage?`.
+  **`difficulty` and `sourceSnippet` may be missing** (PR #28 doesn't send them yet): the UI hides
+  the difficulty indicator, XP treats the card as medium, and the feedback falls back to
+  "See page N of your notes".
 
 ## Data
 
-- **All mock data lives in `src/mocks/data.js`**, shaped like real API responses
-  (`{ user, activity, decks, cards }`). Only `src/api.js` imports it. Each card has
+- **Mock seed data lives in `src/mocks/data.js`** (full cards, answer key included). Each card has
   `question, options[4], correctIndex, answer, explanation, difficulty, topic, sourceSnippet,
-  review`. Hand-written cards have no options (they play as flashcards).
+  sourcePage, review`. Hand-written cards have no options (they play as flashcards).
 - Every count (due, new, mastery %, accuracy, upcoming, weak spots) is computed from the cards in
   `src/lib/selectors.js`, never stored. `GameProvider` exposes `data` (computed view) and
-  `rawData` (the save).
-- **Progress persists** in localStorage (`src/lib/storage.js`, key `studyquest:demo:v2`) after
-  every change. Settings → "Reset demo" clears it. Bump the key if the save shape changes.
+  `rawData` (what the server sent).
+- **Progress** is saved by the mock server; browser-only settings (sound, vibration) are in
+  `src/lib/storage.js` (key `studyquest:settings:v1`). Settings → "Reset demo" clears both.
 - Use real-sounding content (real course names, real questions). No lorem ipsum.
+
+## MVP path (must always work end to end)
+
+New deck → drop a PDF → generate questions → "Learn it now" → quiz → rematch round → results
+→ XP, streak and level-up. Test it after any change to the quiz, API or state.
 
 ## App structure
 
 - `src/App.jsx`: providers, ambient layer, routes, toasts, level-up. Routes (`lib/router.js`):
   `#/`, `#/new`, `#/deck/<id>`, `#/review`, `#/review/deck/<id>`, `#/review/rematch`, `#/stats`,
   `#/profile`, `#/settings`. The quiz runs in focus mode (no sidebar).
-- `src/state/`: `game.js` (reducer, `useGame()`), `GameProvider.jsx`. Actions: `recordAnswer`,
-  `addDeck(deck, cards)`, `updateSettings`, `updateProfile`, `reportCard`, `holdCelebrations`,
+- `src/state/`: `game.js` (reducer, `useGame()`), `GameProvider.jsx`. Actions: `applyAnswer` (stores a
+  graded answer from the server), `addDeck(deck, cards)`, `updateSettings`, `updateProfile`, `reportCard`, `holdCelebrations`,
   `resetDemo`, toasts. State keys and action names must never share a name (they're merged).
 - `src/screens/Quiz.jsx` + `screens/quiz/`: intro → questions (multiple choice or flashcards) →
   rematch round → results. Combo meter, answer feedback with XP breakdown, explanation and the
   source snippet, mastery-up moments, sparks, edge flashes, "Combo ×N" title cards. The level-up
   is held until the results reveal.
-- `src/lib/`: `session.js` (builds sessions, shuffles options), `sound.js` (Web Audio, off by
+- `src/lib/`: `session.js` (server-side: builds sessions, shuffles options), `sound.js` (Web Audio, off by
   default), `haptics.js` (Android vibration), plus the files above.
 - `src/components/`: `Ambient`, `Button` (`primary`, `deck`, `secondary`, `ghost`), `CountUp`,
   `FillBar`, `Field`, `icons`, `LevelBadge`, `LevelUpDialog`, `MasteryGem`, `Sparks`,

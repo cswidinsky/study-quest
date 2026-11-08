@@ -1,5 +1,8 @@
-// All mock data lives here, shaped like the JSON the Flask backend should send.
-// src/api.js is the only file that imports it. To go live, change src/api.js and delete this file.
+// All mock data lives here: the seed for the mock server (src/mocks/server.js), which
+// plays the Flask backend. Cards here include the answer key (correctIndex, answer,
+// explanation, sourceSnippet, sourcePage); the server never sends those to the
+// browser before an answer is graded. To go live, point src/api.js at Flask and
+// delete src/mocks/.
 //
 // Dates are made relative to "now" so the demo always looks current.
 // Nothing here stores a total: the app computes due counts, mastery and accuracy from the cards.
@@ -28,7 +31,7 @@ function review(r) {
 
 // A multiple-choice card. Write the correct option first; it gets moved to a
 // different position per card so correctIndex isn't always 0.
-function mc(deckId, n, { topic, difficulty, question, options, explanation, snippet, state = null }) {
+function mc(deckId, n, { topic, difficulty, page = null, question, options, explanation, snippet, state = null }) {
   const shift = n % 4
   const rotated = options.map((_, i) => options[(i - shift + 4) % 4])
   return {
@@ -43,6 +46,7 @@ function mc(deckId, n, { topic, difficulty, question, options, explanation, snip
     difficulty, // 'easy' | 'medium' | 'hard'
     topic,
     sourceSnippet: snippet,
+    sourcePage: page, // the PDF page the answer comes from (1-based), or null
     review: review(state),
   }
 }
@@ -126,6 +130,7 @@ const cards = [
   mc(chem, 1, {
     topic: 'SN1',
     difficulty: 'medium',
+    page: 2,
     question: 'Why does an SN1 reaction at a chiral carbon give a racemic mixture?',
     options: [
       'The carbocation is planar, so the nucleophile can attack either face',
@@ -140,6 +145,7 @@ const cards = [
   mc(chem, 2, {
     topic: 'SN2',
     difficulty: 'easy',
+    page: 3,
     question: 'Which substrate reacts fastest in an SN2 reaction?',
     options: ['Methyl bromide', 'tert-Butyl bromide', 'Isopropyl bromide', 'Neopentyl bromide'],
     explanation: 'SN2 needs the nucleophile to reach the back of the carbon. Methyl has the least crowding, so it is fastest; tertiary barely reacts.',
@@ -149,6 +155,7 @@ const cards = [
   mc(chem, 3, {
     topic: 'SN1',
     difficulty: 'medium',
+    page: 5,
     question: 'What is the rate law for an SN1 reaction?',
     options: ['Rate = k[substrate]', 'Rate = k[substrate][nucleophile]', 'Rate = k[nucleophile]', 'Rate = k[substrate]²'],
     explanation: 'Only the substrate takes part in the slow step (losing the leaving group), so the nucleophile does not appear in the rate law.',
@@ -158,6 +165,7 @@ const cards = [
   mc(chem, 4, {
     topic: 'Solvents',
     difficulty: 'hard',
+    page: 6,
     question: 'Why do polar aprotic solvents such as DMSO speed up SN2 reactions?',
     options: [
       'They don’t hydrogen-bond to the nucleophile, so it stays reactive',
@@ -172,6 +180,7 @@ const cards = [
   mc(chem, 5, {
     topic: 'Elimination',
     difficulty: 'hard',
+    page: 8,
     question: 'With a bulky base like potassium tert-butoxide, which alkene usually dominates?',
     options: ['The less substituted (Hofmann) alkene', 'The more substituted (Zaitsev) alkene', 'No alkene: substitution wins', 'An alcohol instead of an alkene'],
     explanation: 'A bulky base struggles to reach the inner hydrogens, so it removes the most accessible one, giving the less substituted alkene.',
@@ -183,6 +192,7 @@ const cards = [
   mc(biol, 1, {
     topic: 'Second messengers',
     difficulty: 'easy',
+    page: 2,
     question: 'What does adenylyl cyclase make when a Gs protein switches it on?',
     options: ['Cyclic AMP (cAMP), from ATP', 'IP₃, from PIP₂', 'Cyclic GMP, from GTP', 'Calcium ions, from the ER'],
     explanation: 'Gs activates adenylyl cyclase, which turns ATP into cAMP, the classic second messenger.',
@@ -192,6 +202,7 @@ const cards = [
   mc(biol, 2, {
     topic: 'Second messengers',
     difficulty: 'medium',
+    page: 3,
     question: 'Which enzyme does cAMP activate?',
     options: ['Protein kinase A (PKA)', 'Protein kinase C (PKC)', 'Phospholipase C', 'A receptor tyrosine kinase'],
     explanation: 'cAMP binds the regulatory subunits of PKA, which releases the catalytic subunits to phosphorylate their targets.',
@@ -201,6 +212,7 @@ const cards = [
   mc(biol, 3, {
     topic: 'G proteins',
     difficulty: 'medium',
+    page: 5,
     question: 'What switches a G protein off?',
     options: ['Its own GTPase activity turning GTP into GDP', 'The receptor phosphorylating it', 'cAMP binding to its α subunit', 'Calcium leaving the cell'],
     explanation: 'The α subunit is a built-in timer: it slowly hydrolyses its GTP to GDP, which switches it off.',
@@ -210,6 +222,7 @@ const cards = [
   mc(biol, 4, {
     topic: 'Receptor kinases',
     difficulty: 'hard',
+    page: 6,
     question: 'How does a receptor tyrosine kinase become active?',
     options: [
       'The ligand pairs two receptors, which phosphorylate each other',
@@ -224,6 +237,7 @@ const cards = [
   mc(biol, 5, {
     topic: 'Second messengers',
     difficulty: 'hard',
+    page: 8,
     question: 'Phospholipase C splits PIP₂ into which two messengers?',
     options: ['IP₃ and DAG', 'cAMP and cGMP', 'ATP and ADP', 'Ca²⁺ and cAMP'],
     explanation: 'PLC cuts PIP₂ into IP₃, which releases Ca²⁺ from the ER, and DAG, which stays in the membrane and activates PKC.',
@@ -235,6 +249,7 @@ const cards = [
   mc(econ, 1, {
     topic: 'Monopoly',
     difficulty: 'easy',
+    page: 2,
     question: 'Where does a profit-maximising monopolist set its output?',
     options: ['Where marginal revenue equals marginal cost', 'Where price equals marginal cost', 'Where average cost is lowest', 'Where demand is most elastic'],
     explanation: 'Like any firm, it produces until one more unit adds as much to revenue as to cost (MR = MC), then reads the price off the demand curve.',
@@ -244,6 +259,7 @@ const cards = [
   mc(econ, 2, {
     topic: 'Monopoly',
     difficulty: 'medium',
+    page: 3,
     question: 'Why is a monopolist’s marginal revenue below its demand curve?',
     options: ['To sell one more unit it must lower the price on every unit', 'Because of government taxes', 'Because its costs rise with output', 'Because demand is perfectly elastic'],
     explanation: 'Selling one more unit means cutting the price for every customer, not just the new one, so the extra revenue is less than the price.',
@@ -253,6 +269,7 @@ const cards = [
   mc(econ, 3, {
     topic: 'Oligopoly',
     difficulty: 'medium',
+    page: 5,
     question: 'What is the kinked demand curve meant to explain?',
     options: ['Why prices stay sticky in oligopoly', 'Why monopolies make losses', 'Why perfect competition is efficient', 'Why some demand curves slope upwards'],
     explanation: 'Rivals match a price cut but ignore a price rise, so changing price looks bad either way and prices stay put.',
@@ -262,6 +279,7 @@ const cards = [
   mc(econ, 4, {
     topic: 'Monopolistic competition',
     difficulty: 'hard',
+    page: 6,
     question: 'In the long run, what economic profit does a firm in monopolistic competition earn?',
     options: ['Zero', 'Positive, like a monopoly', 'Negative', 'Whatever the government allows'],
     explanation: 'Profits attract new firms with similar products. Their entry pulls each firm’s demand left until price just equals average cost.',
@@ -271,6 +289,7 @@ const cards = [
   mc(econ, 5, {
     topic: 'Oligopoly',
     difficulty: 'hard',
+    page: 8,
     question: 'Two firms face a prisoner’s dilemma over pricing. What is the Nash equilibrium?',
     options: ['Both cut their prices', 'Both keep prices high', 'One cuts, one keeps prices high', 'There is no equilibrium'],
     explanation: 'Whatever the rival does, cutting price is each firm’s best reply, so both cut, even though both would earn more by cooperating.',
@@ -282,6 +301,7 @@ const cards = [
   mc(comp, 1, {
     topic: 'Complexity',
     difficulty: 'easy',
+    page: 2,
     question: 'What is the time complexity of binary search on a sorted array?',
     options: ['O(log n)', 'O(n)', 'O(n log n)', 'O(1)'],
     explanation: 'Each comparison halves the range left to search, so it takes about log₂ n steps.',
@@ -291,6 +311,7 @@ const cards = [
   mc(comp, 2, {
     topic: 'Recursion',
     difficulty: 'medium',
+    page: 3,
     question: 'Why is naive recursive Fibonacci O(2ⁿ)?',
     options: ['Each call makes two more calls and recomputes the same values', 'It runs a loop inside every call', 'All recursion is exponential', 'It sorts the numbers first'],
     explanation: 'The call tree roughly doubles at every level and keeps recomputing the same numbers. Memoising it brings it down to O(n).',
@@ -300,6 +321,7 @@ const cards = [
   mc(comp, 3, {
     topic: 'Master theorem',
     difficulty: 'hard',
+    page: 5,
     question: 'Using the master theorem, what is T(n) = 2T(n/2) + n?',
     options: ['O(n log n)', 'O(n)', 'O(n²)', 'O(log n)'],
     explanation: 'a = 2 and b = 2, so n^(log_b a) = n. The extra work f(n) = n matches it, which adds a log factor: O(n log n). That’s merge sort.',
@@ -309,6 +331,7 @@ const cards = [
   mc(comp, 4, {
     topic: 'Recursion',
     difficulty: 'easy',
+    page: 6,
     question: 'What happens if a recursive function has no base case?',
     options: ['It recurses until the call stack overflows', 'It returns 0', 'It runs once and stops', 'The compiler adds one automatically'],
     explanation: 'Without a base case nothing stops the calls, so each one adds a stack frame until memory for the stack runs out.',
@@ -318,6 +341,7 @@ const cards = [
   mc(comp, 5, {
     topic: 'Complexity',
     difficulty: 'hard',
+    page: 8,
     question: 'What is the worst-case time to insert into a binary search tree with n nodes?',
     options: ['O(n)', 'O(log n)', 'O(1)', 'O(n log n)'],
     explanation: 'If keys arrive in sorted order the tree becomes a long chain, so you may walk past every node. Balanced trees prevent this.',
@@ -329,6 +353,7 @@ const cards = [
   mc(psyc, 1, {
     topic: 'Heuristics',
     difficulty: 'easy',
+    page: 2,
     question: 'What is the availability heuristic?',
     options: ['Judging how likely something is by how easily examples come to mind', 'Leaning on the first number you hear', 'Favouring information that fits what you believe', 'Believing you knew it all along'],
     explanation: 'Vivid or recent examples come to mind easily, so we overestimate how common they are, like plane crashes after a news story.',
@@ -338,6 +363,7 @@ const cards = [
   mc(psyc, 2, {
     topic: 'Heuristics',
     difficulty: 'medium',
+    page: 3,
     question: 'What is confirmation bias?',
     options: ['Seeking and favouring information that supports what you already believe', 'Remembering only the first item in a list', 'Overestimating how often vivid events happen', 'Changing your view to match a group'],
     explanation: 'We notice, search for and remember evidence that agrees with us, and explain away evidence that doesn’t.',
@@ -347,6 +373,7 @@ const cards = [
   mc(psyc, 3, {
     topic: 'Heuristics',
     difficulty: 'medium',
+    page: 5,
     question: 'A jacket is labelled “was £200, now £120”. Which bias makes £120 feel cheap?',
     options: ['Anchoring', 'Hindsight bias', 'The availability heuristic', 'The misinformation effect'],
     explanation: 'The £200 is an anchor. Estimates are pulled towards the first number seen, so £120 feels like a bargain whatever the jacket is worth.',
@@ -356,6 +383,7 @@ const cards = [
   mc(psyc, 4, {
     topic: 'Memory biases',
     difficulty: 'easy',
+    page: 6,
     question: 'What is hindsight bias?',
     options: ['Believing, after something happens, that you knew it all along', 'Forgetting things that happened long ago', 'Remembering events as more vivid than they were', 'Trusting the first source you read'],
     explanation: 'Once we know an outcome, it feels obvious, and we misremember how uncertain we were before.',
@@ -365,6 +393,7 @@ const cards = [
   mc(psyc, 5, {
     topic: 'Memory biases',
     difficulty: 'hard',
+    page: 8,
     question: 'Why does the misinformation effect matter for eyewitness testimony?',
     options: ['Information given after an event can change what people remember', 'Witnesses usually lie on purpose', 'Memories are exact recordings', 'Stress always sharpens memory'],
     explanation: 'Loftus showed that leading questions (“smashed” vs “hit”) changed what people later remembered seeing. Memory is rebuilt, not replayed.',
@@ -376,6 +405,7 @@ const cards = [
   mc(hist, 1, {
     topic: '1789',
     difficulty: 'easy',
+    page: 2,
     question: 'Which event on 14 July 1789 is seen as the start of the Revolution?',
     options: ['The storming of the Bastille', 'The execution of Louis XVI', 'The Tennis Court Oath', 'The women’s march on Versailles'],
     explanation: 'Parisian crowds seized the Bastille fortress and its gunpowder. 14 July is still France’s national day.',
@@ -384,6 +414,7 @@ const cards = [
   mc(hist, 2, {
     topic: '1789',
     difficulty: 'medium',
+    page: 3,
     question: 'What was the Tennis Court Oath of June 1789?',
     options: ['The Third Estate’s vow not to disband until France had a constitution', 'A royal decree closing the Estates-General', 'A treaty ending war with Austria', 'The founding of the Jacobin Club'],
     explanation: 'Locked out of their hall, the deputies met on a tennis court and swore to stay together until they had written a constitution.',
@@ -392,6 +423,7 @@ const cards = [
   mc(hist, 3, {
     topic: '1789',
     difficulty: 'medium',
+    page: 5,
     question: 'What did the Declaration of the Rights of Man and of the Citizen proclaim?',
     options: ['Liberty, equality before the law, and sovereignty of the nation', 'The divine right of kings', 'A return to feudal dues', 'Catholicism as the only lawful faith'],
     explanation: 'Adopted in August 1789, it said rights belong to every citizen and power comes from the nation, not the king.',
@@ -400,6 +432,7 @@ const cards = [
   mc(hist, 4, {
     topic: 'The Terror',
     difficulty: 'medium',
+    page: 6,
     question: 'Who dominated the Committee of Public Safety during the Terror?',
     options: ['Maximilien Robespierre', 'Napoleon Bonaparte', 'Georges Danton', 'Louis XVI'],
     explanation: 'Robespierre led the Committee in 1793–94. Danton was a rival who was himself executed in 1794.',
@@ -408,6 +441,7 @@ const cards = [
   mc(hist, 5, {
     topic: 'The Terror',
     difficulty: 'hard',
+    page: 8,
     question: 'What ended the Terror in July 1794?',
     options: ['The Thermidorian Reaction: Robespierre’s arrest and execution', 'Napoleon’s coup of 18 Brumaire', 'The king’s flight to Varennes', 'A peace treaty with Britain'],
     explanation: 'On 9 Thermidor the Convention turned on Robespierre. His execution the next day ended the Terror.',
@@ -496,7 +530,7 @@ export function buildGeneratedDeck({ fileName, title, course, questionCount }) {
     createdAt: new Date().toISOString(),
   }
   const cards = generatedPool.slice(0, questionCount).map(([topic, difficulty, question, options, explanation, snippet], i) =>
-    mc(deck.id, i + 1, { topic, difficulty, question, options, explanation, snippet }),
+    mc(deck.id, i + 1, { topic, difficulty, page: Math.floor(i / 2) + 1, question, options, explanation, snippet }),
   )
   return { deck, cards }
 }
@@ -525,6 +559,7 @@ export function buildManualDeck({ title, course, cards: written }) {
     difficulty: 'medium',
     topic: title,
     sourceSnippet: null,
+    sourcePage: null,
     review: review(null),
   }))
   return { deck, cards }

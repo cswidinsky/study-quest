@@ -24,7 +24,7 @@ export default function Results({ log, bestCombo, decks, streak, streakLitNow, o
   const score = main.length ? Math.round((right / main.length) * 100) : 0
   const xp = log.reduce((s, l) => s + l.xp, 0)
   const comebacks = log.filter((l) => l.reason === 'comeback').length
-  const ups = main.filter((l) => masteryIndex(l.masteryAfter) > masteryIndex(l.masteryBefore))
+  const ups = main.filter((l) => l.correct && masteryIndex(l.masteryAfter) > masteryIndex(l.masteryBefore))
   const missed = main.filter((l) => !l.correct)
   const weakTopics = [
     ...missed.reduce((m, l) => {

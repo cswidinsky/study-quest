@@ -1,10 +1,10 @@
 import { createContext, useContext } from 'react'
 import { levelForXp } from '../lib/levels.js'
-import { dayKey, streakNow } from '../lib/selectors.js'
 
 // Shared game state. GameProvider.jsx holds it; components read it with useGame().
-// `data` is the raw save (same shape as the API): user, activity, decks, cards,
-// settings, reported. Screens get a computed view of it (counts, streak, upcoming).
+// `data` holds what the server sent (user, activity, decks, public cards, reported)
+// plus browser-only settings. Screens get a computed view of it (counts, streak, upcoming).
+// Nothing here grades answers or calculates XP: that is the server's job.
 
 export const GameContext = createContext(null)
 
@@ -28,19 +28,6 @@ export const initialState = {
 
 let toastId = 0
 
-function bumpActivity(activity, now, correct) {
-  const key = dayKey(now)
-  const today = activity.find((a) => dayKey(a.date) === key)
-  if (today) {
-    return activity.map((a) =>
-      a === today ? { ...a, answered: a.answered + 1, correct: a.correct + (correct ? 1 : 0) } : a,
-    )
-  }
-  const noon = new Date(now)
-  noon.setHours(12, 0, 0, 0)
-  return [...activity, { date: noon.toISOString(), answered: 1, correct: correct ? 1 : 0 }].slice(-60)
-}
-
 export function reducer(state, action) {
   switch (action.type) {
     case 'load/start':
@@ -54,34 +41,21 @@ export function reducer(state, action) {
     case 'load/error':
       return { ...state, status: 'error', error: action.error }
 
-    // One answer in a quiz. `result` comes from api.recordAnswer (the "server").
-    case 'answer/recorded': {
+    // One graded answer. `action.response` comes from api.submitAnswer: the server has already
+    // decided right/wrong, XP, streak and the card's new memory state. We just store it.
+    case 'answer/applied': {
       if (!state.data) return state
-      const { cardId, correct, result, now } = action
-      const { user, cards, decks, activity } = state.data
-      const card = cards.find((c) => c.id === cardId)
-
-      const fromXp = user.xp.total
-      const toXp = fromXp + result.xp
-      const fromLevel = levelForXp(fromXp)
-      const toLevel = levelForXp(toXp)
-
-      // The streak counts days with at least one XP-earning answer.
-      let streak = user.streak
-      const today = dayKey(now)
-      if (result.xp > 0 && streak.lastStudyDate !== today) {
-        const current = streakNow(streak, now).current + 1
-        streak = { current, longest: Math.max(streak.longest, current), lastStudyDate: today }
-      }
-
+      const r = action.response
+      const fromLevel = levelForXp(state.data.user.xp.total)
+      const toLevel = levelForXp(r.user.xp.total)
       return {
         ...state,
         data: {
           ...state.data,
-          user: { ...user, xp: { total: toXp }, streak },
-          cards: cards.map((c) => (c.id === cardId ? { ...c, review: result.review } : c)),
-          decks: decks.map((d) => (d.id === card?.deckId ? { ...d, lastStudiedAt: new Date(now).toISOString() } : d)),
-          activity: bumpActivity(activity, now, correct),
+          user: { ...state.data.user, xp: r.user.xp, streak: r.user.streak },
+          cards: state.data.cards.map((c) => (c.id === r.card.id ? r.card : c)),
+          decks: r.deck ? state.data.decks.map((d) => (d.id === r.deck.id ? { ...d, lastStudiedAt: r.deck.lastStudiedAt } : d)) : state.data.decks,
+          activity: r.activity,
         },
         levelUp: toLevel > fromLevel ? { from: state.levelUp?.from ?? fromLevel, to: toLevel } : state.levelUp,
       }

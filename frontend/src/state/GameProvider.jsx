@@ -1,24 +1,21 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
-import { getDashboard } from '../api.js'
+import * as api from '../api.js'
 import { enrichDecks, lastDays, streakNow, upcoming } from '../lib/selectors.js'
-import { clearSave, loadSave, writeSave } from '../lib/storage.js'
+import { clearSettings, loadSettings, saveSettings } from '../lib/storage.js'
 import { setSoundEnabled } from '../lib/sound.js'
 import { setHapticsEnabled } from '../lib/haptics.js'
-import { GameContext, initialState, reducer } from './game.js'
+import { DEFAULT_SETTINGS, GameContext, initialState, reducer } from './game.js'
 
 export default function GameProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState)
 
-  // Start from the saved demo if there is one, otherwise from the (mock) API.
+  // Progress comes from the server (the mock server saves it between visits).
+  // Settings (sound, vibration) are browser-only.
   const load = useCallback(async () => {
-    const saved = loadSave()
-    if (saved) {
-      dispatch({ type: 'load/success', data: saved })
-      return
-    }
     dispatch({ type: 'load/start' })
     try {
-      dispatch({ type: 'load/success', data: await getDashboard() })
+      const data = await api.getDashboard()
+      dispatch({ type: 'load/success', data: { ...data, settings: { ...DEFAULT_SETTINGS, ...loadSettings() } } })
     } catch (error) {
       dispatch({ type: 'load/error', error: error.message })
     }
@@ -28,15 +25,13 @@ export default function GameProvider({ children }) {
     load()
   }, [load])
 
-  // Save after every change, so a reload keeps your progress.
+  // Remember the browser-only settings, and keep the sound and vibration switches in sync.
   useEffect(() => {
-    if (state.data) writeSave(state.data)
-  }, [state.data])
-
-  // Keep the sound and vibration switches in sync with the settings.
-  useEffect(() => {
-    setSoundEnabled(Boolean(state.data?.settings?.sound))
-    setHapticsEnabled(state.data?.settings?.haptics !== false)
+    const settings = state.data?.settings
+    if (!settings) return
+    saveSettings(settings)
+    setSoundEnabled(Boolean(settings.sound))
+    setHapticsEnabled(settings.haptics !== false)
   }, [state.data?.settings])
 
   // A clock that ticks once a minute, so "due today" stays right past midnight.
@@ -46,7 +41,7 @@ export default function GameProvider({ children }) {
     return () => clearInterval(timer)
   }, [])
 
-  // What the screens read: totals computed from the raw cards and answers.
+  // What the screens read: totals computed from the cards and answers the server sent.
   const view = useMemo(() => {
     const d = state.data
     if (!d) return null
@@ -62,18 +57,27 @@ export default function GameProvider({ children }) {
   const actions = useMemo(
     () => ({
       reload: load,
-      recordAnswer: (payload) => dispatch({ type: 'answer/recorded', now: Date.now(), ...payload }),
+      // Store a graded answer from api.submitAnswer (XP, streak and card come from the server).
+      applyAnswer: (response) => dispatch({ type: 'answer/applied', response }),
       addDeck: (deck, cards) => dispatch({ type: 'deck/created', deck, cards }),
       updateSettings: (patch) => dispatch({ type: 'settings/update', patch }),
-      updateProfile: (patch) => dispatch({ type: 'profile/update', patch }),
-      reportCard: (cardId) => dispatch({ type: 'card/reported', cardId }),
+      updateProfile: async (patch) => {
+        const user = await api.updateProfile(patch)
+        dispatch({ type: 'profile/update', patch: user })
+        return user
+      },
+      reportCard: async (cardId) => {
+        await api.reportQuestion(cardId)
+        dispatch({ type: 'card/reported', cardId })
+      },
       showToast: (toast) => dispatch({ type: 'toast/show', toast }),
       dismissToast: (id) => dispatch({ type: 'toast/dismiss', id }),
       dismissLevelUp: () => dispatch({ type: 'levelUp/dismiss' }),
       holdCelebrations: (hold) => dispatch({ type: 'celebrations/hold', hold }),
       clearLanded: () => dispatch({ type: 'deck/landed' }),
-      resetDemo: () => {
-        clearSave()
+      resetDemo: async () => {
+        await api.resetDemo()
+        clearSettings()
         window.location.hash = '#/'
         window.location.reload()
       },

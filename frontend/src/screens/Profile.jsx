@@ -17,24 +17,22 @@ import { ArrowRightIcon } from '../components/icons.jsx'
 export default function Profile() {
   const { data, updateProfile, showToast } = useGame()
   const rise = useRise()
-  const id = useId()
-  const [first, setFirst] = useState(data?.user.firstName ?? '')
-  const [last, setLast] = useState(data?.user.lastName ?? '')
   if (!data) return null
 
   const { user, decks } = data
   const level = levelProgress(user.xp.total)
   const since = user.joinedAt ? new Date(user.joinedAt).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : 'this month'
   const courses = [...decks.reduce((m, d) => m.set(d.course.name, [...(m.get(d.course.name) ?? []), d]), new Map())]
-  const changed = first.trim() !== user.firstName || last.trim() !== user.lastName
   const totalCards = decks.reduce((s, d) => s + d.cardCount, 0)
   const mastered = decks.reduce((s, d) => s + d.masteredCount, 0)
 
-  function save(e) {
-    e.preventDefault()
-    if (!first.trim()) return
-    updateProfile({ firstName: first.trim(), lastName: last.trim() })
-    showToast({ kind: 'info', message: 'Name saved.' })
+  async function save(firstName, lastName) {
+    try {
+      await updateProfile({ firstName, lastName })
+      showToast({ kind: 'info', message: 'Name saved.' })
+    } catch (error) {
+      showToast({ kind: 'info', message: `Couldn’t save your name: ${error.message}` })
+    }
   }
 
   return (
@@ -90,23 +88,7 @@ export default function Profile() {
           </dl>
         </motion.section>
 
-        <motion.form variants={rise} onSubmit={save} className="panel col-span-12 rounded-3xl p-4 sm:p-6 lg:col-span-5" aria-labelledby="name-heading">
-          <h2 id="name-heading" className="text-sm font-semibold">
-            Your name
-          </h2>
-          <p className="mt-0.5 text-xs text-muted">Shown on your dashboard greeting.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Field label="First name" htmlFor={`${id}-first`}>
-              <TextInput id={`${id}-first`} value={first} onChange={(e) => setFirst(e.target.value)} required autoComplete="given-name" />
-            </Field>
-            <Field label="Last name" htmlFor={`${id}-last`}>
-              <TextInput id={`${id}-last`} value={last} onChange={(e) => setLast(e.target.value)} autoComplete="family-name" />
-            </Field>
-          </div>
-          <Button type="submit" className="mt-5" disabled={!changed || !first.trim()}>
-            Save name
-          </Button>
-        </motion.form>
+        <NameForm rise={rise} user={user} onSave={save} />
 
         <motion.section variants={rise} className="panel col-span-12 rounded-3xl p-4 sm:p-6" aria-labelledby="courses-heading">
           <h2 id="courses-heading" className="text-sm font-semibold">
@@ -145,5 +127,41 @@ function Record({ label, children }) {
       <dt className="text-xs text-muted">{label}</dt>
       <dd className="mt-1.5 flex items-baseline">{children}</dd>
     </div>
+  )
+}
+
+// The name form. It only mounts once the saved data has loaded (Profile returns
+// null before that), so its fields always start from the saved name, even when
+// you open or refresh the Profile page directly.
+function NameForm({ rise, user, onSave }) {
+  const id = useId()
+  const [first, setFirst] = useState(user.firstName)
+  const [last, setLast] = useState(user.lastName)
+  const changed = first.trim() !== user.firstName || last.trim() !== user.lastName
+
+  function submit(e) {
+    e.preventDefault()
+    if (!first.trim()) return
+    onSave(first.trim(), last.trim())
+  }
+
+  return (
+    <motion.form variants={rise} onSubmit={submit} className="panel col-span-12 rounded-3xl p-4 sm:p-6 lg:col-span-5" aria-labelledby="name-heading">
+      <h2 id="name-heading" className="text-sm font-semibold">
+        Your name
+      </h2>
+      <p className="mt-0.5 text-xs text-muted">Shown on your dashboard greeting.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Field label="First name" htmlFor={`${id}-first`}>
+          <TextInput id={`${id}-first`} value={first} onChange={(e) => setFirst(e.target.value)} required autoComplete="given-name" />
+        </Field>
+        <Field label="Last name" htmlFor={`${id}-last`}>
+          <TextInput id={`${id}-last`} value={last} onChange={(e) => setLast(e.target.value)} autoComplete="family-name" />
+        </Field>
+      </div>
+      <Button type="submit" className="mt-5" disabled={!changed || !first.trim()}>
+        Save name
+      </Button>
+    </motion.form>
   )
 }

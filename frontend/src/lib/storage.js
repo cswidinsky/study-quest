@@ -1,29 +1,28 @@
-// Demo save file: progress (XP, level, streak, card memory, decks, settings)
-// lives in localStorage so it survives a reload. Bump the version when the shape changes.
+// Browser-only preferences (sound, vibration). Progress (XP, streak, decks,
+// card memory) belongs to the server; in the demo the mock server saves it.
 
-const KEY = 'studyquest:demo:v2'
+const SETTINGS_KEY = 'studyquest:settings:v1'
 
-export function loadSave() {
+export function loadSettings() {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(SETTINGS_KEY)
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
   }
 }
 
-export function writeSave(data) {
+export function saveSettings(settings) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(data))
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   } catch {
-    // Storage full or blocked: the demo keeps working, it just won't persist.
+    // Storage full or blocked: settings just won't persist.
   }
 }
 
-// "Reset demo" in Settings: forget everything and start from the mock data again.
-export function clearSave() {
+export function clearSettings() {
   try {
-    localStorage.removeItem(KEY)
+    localStorage.removeItem(SETTINGS_KEY)
   } catch {
     // nothing to clear
   }
