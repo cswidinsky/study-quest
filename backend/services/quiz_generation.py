@@ -3,7 +3,13 @@ import os
 import re
 import random
 
-from openai import OpenAI, OpenAIError
+from openai import (
+    APITimeoutError,
+    AuthenticationError,
+    OpenAI,
+    OpenAIError,
+    RateLimitError,
+)
 
 from backend.services.llm import LLMError
 class QuizValidationError(ValueError):
@@ -17,10 +23,14 @@ QUESTION_FIELDS = {
     "question",
     "options",
     "correctIndex",
+    "difficulty",
     "explanation",
     "sourcePage",
+    "sourceSnippet",
     "topic",
 }
+DIFFICULTIES = ("easy", "medium", "hard")
+PAGE_MARKER = re.compile(r"^--- Page ([1-9]\d*) ---[ \t]*\r?$", re.MULTILINE)
 
 
 def validate_quiz(data, *, question_count, source_pages):
@@ -50,7 +60,7 @@ def validate_quiz(data, *, question_count, source_pages):
                 "Question IDs must be consecutive integers starting at 1."
             )
 
-        for field in ("question", "explanation", "topic"):
+        for field in ("question", "explanation", "sourceSnippet", "topic"):
             value = question[field]
 
             if not isinstance(value, str) or not value.strip():
@@ -94,11 +104,21 @@ def validate_quiz(data, *, question_count, source_pages):
                 "correctIndex must be an integer from 0 to 3."
             )
 
+        if question["difficulty"] not in DIFFICULTIES:
+            raise QuizValidationError("difficulty must be easy, medium, or hard.")
+
         source_page = question["sourcePage"]
 
         if type(source_page) is not int or source_page not in source_pages:
             raise QuizValidationError(
                 "sourcePage must reference a page in the supplied lecture."
+            )
+
+        snippet = " ".join(question["sourceSnippet"].split())
+        page_text = " ".join(source_pages[source_page].split())
+        if snippet not in page_text:
+            raise QuizValidationError(
+                f"Question {expected_id}: sourceSnippet must appear on sourcePage."
             )
 
     return data
@@ -132,11 +152,16 @@ def build_quiz_schema(question_count, source_pages):
                             "minimum": 0,
                             "maximum": 3,
                         },
+                        "difficulty": {
+                            "type": "string",
+                            "enum": list(DIFFICULTIES),
+                        },
                         "explanation": {"type": "string"},
                         "sourcePage": {
                             "type": "integer",
                             "enum": sorted(source_pages),
                         },
+                        "sourceSnippet": {"type": "string"},
                         "topic": {"type": "string"},
                     },
                     "required": sorted(QUESTION_FIELDS),
@@ -236,13 +261,10 @@ def generate_quiz(lecture_text, question_count=5):
     if len(lecture_text) > 40_000:
         raise ValueError("Lecture text exceeds the 40,000-character limit.")
 
+    page_parts = PAGE_MARKER.split(lecture_text)
     source_pages = {
-        int(number)
-        for number in re.findall(
-            r"^--- Page ([1-9]\d*) ---\s*$",
-            lecture_text,
-            flags=re.MULTILINE,
-        )
+        int(number): text
+        for number, text in zip(page_parts[1::2], page_parts[2::2])
     }
 
     if not source_pages:
@@ -295,7 +317,11 @@ def generate_quiz(lecture_text, question_count=5):
         "- Use consecutive question IDs starting at 1.\n"
         "- Set correctIndex to the correct option's zero-based index.\n"
         "- Give a concise explanation of why the answer is correct.\n"
+        "- Set difficulty to easy for recall, medium for applying a concept, "
+        "or hard for multi-step reasoning.\n"
         "- Set sourcePage to a page that directly supports the answer.\n"
+        "- Copy a short, contiguous passage from that page into sourceSnippet. "
+        "Preserve the wording and punctuation, and copy only page content.\n"
         "- Give each question a short, meaningful topic label."
         
     )
@@ -324,6 +350,18 @@ def generate_quiz(lecture_text, question_count=5):
                 max_output_tokens=question_count * 600 + 500,
                 store=False,
             )
+    except APITimeoutError:
+        raise LLMError(
+            "OpenAI timed out while generating the quiz. Try requesting fewer questions."
+        ) from None
+    except RateLimitError:
+        raise LLMError(
+            "OpenAI rate limit reached. Wait before retrying, or check your API quota."
+        ) from None
+    except AuthenticationError:
+        raise LLMError(
+            "OpenAI rejected the API key. Check that LLM_API_KEY is valid."
+        ) from None
     except OpenAIError:
         raise LLMError(
             "Quiz generation failed. Check API access, billing, "

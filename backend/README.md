@@ -127,6 +127,7 @@ Send a short synthetic lecture sample:
 ```
 
 The question count defaults to 5 and accepts integers from 1 to 10.
+Use `--questions 10` to check the upper limit with a detailed lecture PDF.
 
 Only send documents you have permission to share with the provider.
 Keep private PDFs and generated output out of Git.
@@ -148,20 +149,26 @@ Successful results contain a `questions` array. Each question includes:
 | `question` | Question text |
 | `options` | Four distinct answer options |
 | `correctIndex` | Correct option's zero-based index, from 0 to 3 |
+| `difficulty` | `easy` for recall, `medium` for application, or `hard` for multi-step reasoning |
 | `explanation` | Explanation of the correct answer |
 | `sourcePage` | Supporting PDF page number |
+| `sourceSnippet` | Short passage quoted from the supporting PDF page |
 | `topic` | Short topic label |
 
 The service validates the structure, question count, answer indices,
 duplicate questions/options, and whether referenced page numbers exist.
+It checks that each source snippet appears on the cited page after
+collapsing whitespace to account for PDF line breaks.
 Options are shuffled while preserving the answer key.
 
 The model may report insufficient content instead of generating a quiz.
 The command then displays an explanatory error and exits unsuccessfully.
+Quiz generation reports OpenAI timeouts, rate limits, and rejected API keys
+with distinct messages.
 
 **The command prints internal quiz data, including answer keys.**
-Student-facing APIs must omit answer keys until the appropriate grading
-or feedback step.
+Student-facing APIs must omit answer keys and source snippets until the
+appropriate grading or feedback step.
 
 ## Limits and known limitations
 
