@@ -1,41 +1,57 @@
 @import "tailwindcss";
+@import "lenis/dist/lenis.css";
 
 /*
   Dark mode is driven by <html data-theme="light|dark">.
-  A small script in index.html sets it before the page paints
-  (saved choice first, otherwise the system setting).
-  This makes `dark:` classes follow that attribute too.
+  index.html sets it before the page paints (saved choice, else the system setting).
+  `dark:` classes follow that attribute too.
 */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /*
-  Design tokens. Each one becomes a Tailwind class:
-  --color-surface -> bg-surface, text-surface, border-surface ...
-  --font-mono     -> font-mono
-  --ease-out      -> ease-out
+  Design tokens. Each becomes a Tailwind class: --color-panel -> bg-panel, border-panel …
+  Light values here; dark values override them in :root[data-theme="dark"] below.
 */
-@theme {
-  /* Remove Tailwind's default palette so only our colours exist. */
+@theme static {
   --color-*: initial;
 
-  /* Light values. Dark values override these further down. */
-  --color-background: #f7f5f0;
-  --color-surface: #ffffff;
-  --color-text: #16161a;
-  --color-muted: #6b6a66;
-  --color-border: #e6e2d9;
+  /* Neutrals (light: bright and warm) */
+  --color-background: #fffaf5;
+  --color-surface: #ffffff; /* opaque: inputs, dialogs, toasts */
+  --color-panel: color-mix(in oklab, #ffffff 80%, transparent); /* translucent: lets the ambient light through */
+  --color-text: #1b1512;
+  --color-muted: #6f6560;
+  --color-border: #f0e3d7;
 
-  /* Same in both themes */
+  /* Hero accent: tangerine. Secondary: lagoon, its opposite on the colour wheel (the "teal and orange" film grade). */
   --color-accent: #ff6b2c;
   --color-accent-hover: color-mix(in oklab, #ff6b2c 88%, black);
-  --color-on-accent: #16161a; /* text on accent: white fails contrast */
+  --color-accent-soft: color-mix(in oklab, #ff6b2c 14%, transparent);
+  --color-secondary: #14c2d0;
+  --color-secondary-soft: color-mix(in oklab, #14c2d0 16%, transparent);
+  --color-on-accent: #1b1512; /* text on any vivid fill (white fails contrast) */
+  --color-sun: #ffc23d; /* sparks, flame core highlights */
+  --color-flame-core: #ffd27a;
+
+  /* Status */
   --color-success: #2fb67c;
-  --color-error: #e5484d;
+  --color-error: #f04a5c;
+
+  /* One vivid colour per deck (deck.color in the data picks one) */
+  --color-deck-tangerine: #ff6b2c;
+  --color-deck-lagoon: #14c2d0;
+  --color-deck-sun: #ffb020;
+  --color-deck-rose: #ff4f8b;
+  --color-deck-sky: #3d8bff;
+  --color-deck-lime: #8ed44a;
+
+  /* text-xs is 13px here (Tailwind's default is 12px) */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
 
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
-  /* Strong custom curves (the built-in CSS ones feel weak) */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -44,15 +60,32 @@
 @layer base {
   :root {
     color-scheme: light;
+    /* Ambient light behind the app (colour + strength per theme) */
+    --ambient-a: color-mix(in oklab, #ff8a4c 30%, transparent);
+    --ambient-b: color-mix(in oklab, #14c2d0 20%, transparent);
+    --ambient-c: color-mix(in oklab, #ffc23d 26%, transparent);
+    --particle: 255 138 76; /* r g b */
+    --particle-alpha: 0.35;
+    --panel-edge: inset 0 1px 0 rgb(255 255 255 / 0.9);
+    --shadow-float: 0 18px 50px -18px rgb(120 60 20 / 0.28);
   }
 
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --color-background: #0f1012;
-    --color-surface: #17181b;
-    --color-text: #f2f0ea;
-    --color-muted: #8e8c86;
-    --color-border: #26272b;
+    --color-background: #07080c;
+    --color-surface: #11131b;
+    --color-panel: color-mix(in oklab, #131623 72%, transparent);
+    --color-text: #f5f2ec;
+    --color-muted: #9c9aab;
+    --color-border: color-mix(in oklab, #ffffff 9%, transparent);
+
+    --ambient-a: color-mix(in oklab, #ff6b2c 26%, transparent);
+    --ambient-b: color-mix(in oklab, #14c2d0 20%, transparent);
+    --ambient-c: color-mix(in oklab, #ff4f8b 14%, transparent);
+    --particle: 255 236 220;
+    --particle-alpha: 0.55;
+    --panel-edge: inset 0 1px 0 rgb(255 255 255 / 0.05);
+    --shadow-float: 0 24px 70px -20px rgb(0 0 0 / 0.7);
   }
 
   body {
@@ -62,6 +95,16 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  ::placeholder {
+    color: var(--color-muted);
+    opacity: 1;
+  }
 }
 
 /* Numbers: XP, scores, timers. Usage: className="num" */
@@ -69,4 +112,239 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+}
+
+/* A translucent panel with a faint top highlight. Usage: className="panel" */
+@utility panel {
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--panel-edge);
+}
+
+/* Glows. Static shadows (cheap); fade them with opacity on a wrapper if they need to animate. */
+@utility glow-accent {
+  box-shadow: 0 0 22px -2px color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+@utility glow-deck {
+  box-shadow: 0 0 18px -2px color-mix(in oklab, var(--deck) 75%, transparent);
+}
+
+/* ——— Ambient background ——— */
+
+.ambient-blob {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 9999px;
+  will-change: transform;
+}
+.ambient-blob.a {
+  top: -30vmax;
+  left: -18vmax;
+  background: radial-gradient(closest-side, var(--ambient-a), transparent);
+  animation: drift-a 38s var(--ease-in-out) infinite alternate;
+}
+.ambient-blob.b {
+  right: -26vmax;
+  top: 10vh;
+  background: radial-gradient(closest-side, var(--ambient-b), transparent);
+  animation: drift-b 46s var(--ease-in-out) infinite alternate;
+}
+.ambient-blob.c {
+  left: 20vw;
+  bottom: -40vmax;
+  background: radial-gradient(closest-side, var(--ambient-c), transparent);
+  animation: drift-c 52s var(--ease-in-out) infinite alternate;
+}
+@keyframes drift-a {
+  to {
+    transform: translate3d(14vw, 12vh, 0) scale(1.15);
+  }
+}
+@keyframes drift-b {
+  to {
+    transform: translate3d(-18vw, 16vh, 0) scale(0.9);
+  }
+}
+@keyframes drift-c {
+  to {
+    transform: translate3d(-10vw, -18vh, 0) scale(1.2);
+  }
+}
+
+/* Film grain: a static noise texture at very low opacity. */
+.ambient-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ——— Streak flame ——— */
+
+@keyframes flicker {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.07, 0.93);
+  }
+}
+.flame-core {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: flicker 2.4s var(--ease-in-out) infinite;
+}
+.flame-glow {
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--color-accent) 70%, transparent));
+}
+
+/* ——— Moving sheen on progress bars while something is working ——— */
+
+@keyframes sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  animation: sheen 1.4s linear infinite;
+}
+
+/* ——— Level-up light rays ——— */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.rays {
+  background: repeating-conic-gradient(
+    from 0deg,
+    color-mix(in oklab, var(--color-accent) 15%, transparent) 0deg 4deg,
+    transparent 4deg 15deg
+  );
+  -webkit-mask-image: radial-gradient(closest-side, black 8%, transparent 85%);
+  mask-image: radial-gradient(closest-side, black 8%, transparent 85%);
+  animation: spin 40s linear infinite;
+}
+
+/* ——— Level-up: the whole app pulls back like a camera, then returns ——— */
+
+.stage {
+  transform-origin: 50% 40vh;
+  transition:
+    transform 900ms var(--ease-out),
+    opacity 900ms var(--ease-out);
+}
+html[data-celebrate] .stage {
+  transform: scale(0.94);
+  opacity: 0.35;
+}
+
+/* ——— Screen transitions (View Transitions API) ———
+   router.js sets data-vt="route" while a screen changes, theme.js sets data-vt="theme". */
+
+/* Never block clicks: the transition overlay lets pointer events through. */
+::view-transition {
+  pointer-events: none;
+}
+
+::view-transition-group(*) {
+  animation-duration: 560ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-vt="route"]::view-transition-old(root) {
+  animation: vt-out 260ms var(--ease-out) both;
+}
+html[data-vt="route"]::view-transition-new(root) {
+  animation: vt-in 520ms var(--ease-out) both;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+/* Things that stay put between screens: the background, the sidebar, the XP bar. */
+html[data-vt="route"] .vt-ambient {
+  view-transition-name: ambient;
+}
+html[data-vt="route"] .vt-sidebar {
+  view-transition-name: sidebar;
+}
+html[data-vt="route"] .vt-hud {
+  view-transition-name: hud;
+}
+html[data-vt="route"] .vt-mobilebar {
+  view-transition-name: mobilebar;
+}
+::view-transition-old(ambient),
+::view-transition-old(sidebar),
+::view-transition-old(hud),
+::view-transition-old(mobilebar) {
+  display: none;
+}
+::view-transition-new(ambient),
+::view-transition-new(sidebar),
+::view-transition-new(hud),
+::view-transition-new(mobilebar) {
+  animation: none;
+}
+
+/* Shared elements: a deck card morphs into its page (and back). Name set via --vt-name. */
+html[data-vt="route"] .vt-shared {
+  view-transition-name: var(--vt-name);
+  view-transition-class: deck;
+}
+::view-transition-group(.deck) {
+  overflow: clip;
+  border-radius: 20px;
+  animation-duration: 620ms;
+}
+::view-transition-old(.deck),
+::view-transition-new(.deck) {
+  height: 100%;
+  object-fit: cover;
+  object-position: left top;
+}
+
+/* Theme switch: the new theme grows as a circle from the button (theme.js animates the clip). */
+html[data-vt="theme"]::view-transition-old(root),
+html[data-vt="theme"]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-vt="theme"]::view-transition-new(root) {
+  z-index: 1;
+}
+
+/* ——— Reduced motion: calm, still, readable ——— */
+@media (prefers-reduced-motion: reduce) {
+  .ambient-blob,
+  .flame-core,
+  .rays,
+  .sheen::after {
+    animation: none;
+  }
+  html[data-celebrate] .stage {
+    transform: none;
+  }
 }

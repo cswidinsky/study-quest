@@ -1,85 +1,79 @@
+import { useId } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useTheme } from '../theme.js'
+import { toggleTheme, useTheme } from '../theme.js'
 
-const OPTIONS = [
-  { value: 'system', label: 'Use system theme', Icon: MonitorIcon },
-  { value: 'light', label: 'Light theme', Icon: SunIcon },
-  { value: 'dark', label: 'Dark theme', Icon: MoonIcon },
-]
+// One button. The sun swallows its rays and a shadow slides across it to become
+// a moon (and back). The new theme then grows out of the button as a circle.
 
-export default function ThemeToggle() {
-  const [theme, setTheme] = useTheme()
+const SPRING = { type: 'spring', duration: 0.6, bounce: 0.3 }
+const RAYS = Array.from({ length: 8 }, (_, i) => i * 45)
+
+export default function ThemeToggle({ className = '' }) {
+  const theme = useTheme()
+  const dark = theme === 'dark'
+  const maskId = useId()
+  // Reduced motion: the icon swaps instantly instead of morphing (from the team review).
   const reduceMotion = useReducedMotion()
+  const spring = reduceMotion ? { duration: 0 } : SPRING
+
+  function onClick(e) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+  }
 
   return (
-    <div
-      role="group"
-      aria-label="Theme"
-      className="flex rounded-full border border-border bg-surface p-0.5"
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={dark ? 'Light theme' : 'Dark theme'}
+      className={`grid size-10 place-items-center rounded-full text-text transition-[background-color,scale] duration-150 ease-out hover:bg-border/70 active:scale-[0.92] ${className}`}
     >
-      {OPTIONS.map(({ value, label, Icon }) => {
-        const active = theme === value
-        return (
-          <button
-            key={value}
-            type="button"
-            aria-label={label}
-            aria-pressed={active}
-            title={label}
-            onClick={() => setTheme(value)}
-            className="relative grid size-8 place-items-center rounded-full text-muted transition-[color,transform] duration-150 ease-out hover:text-text active:scale-[0.94] aria-pressed:text-text focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            {/* One pill that slides between options (shared layoutId) */}
-            {active && (
-              <motion.span
-                layoutId="theme-pill"
-                className="absolute inset-0 rounded-full bg-background"
-                transition={reduceMotion
-                  ? { type: 'tween', duration: 0 }
-                  : { type: 'spring', duration: 0.3, bounce: 0 }}
+      <motion.svg
+        viewBox="0 0 24 24"
+        className="size-5"
+        aria-hidden="true"
+        initial={false}
+        animate={{ rotate: dark ? 40 : 90 }}
+        transition={spring}
+      >
+        <mask id={maskId}>
+          <rect width="24" height="24" fill="white" />
+          {/* The "shadow" that turns the sun into a crescent */}
+          <motion.circle
+            r="7"
+            fill="black"
+            initial={false}
+            animate={dark ? { cx: 16.5, cy: 7.5 } : { cx: 30, cy: -6 }}
+            transition={spring}
+          />
+        </mask>
+        <motion.circle
+          cx="12"
+          cy="12"
+          fill="currentColor"
+          mask={`url(#${maskId})`}
+          initial={false}
+          animate={{ r: dark ? 8.5 : 4.5 }}
+          transition={spring}
+        />
+        <g stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          {RAYS.map((angle, i) => (
+            // Plain SVG rotation around the centre; Motion only fades and shrinks each ray.
+            <g key={angle} transform={`rotate(${angle} 12 12)`}>
+              <motion.line
+                x1="12"
+                y1="1.8"
+                x2="12"
+                y2="4"
+                initial={false}
+                animate={{ opacity: dark ? 0 : 1, scale: dark ? 0.3 : 1 }}
+                transition={reduceMotion ? spring : { ...SPRING, delay: dark ? 0 : 0.08 + i * 0.025 }}
               />
-            )}
-            <Icon />
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-const iconProps = {
-  className: 'relative size-4',
-  viewBox: '0 0 24 24',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.75,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
-  'aria-hidden': true,
-}
-
-function MonitorIcon() {
-  return (
-    <svg {...iconProps}>
-      <rect x="3" y="4" width="18" height="12" rx="2" />
-      <path d="M8 20h8M12 16v4" />
-    </svg>
-  )
-}
-
-function SunIcon() {
-  return (
-    <svg {...iconProps}>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-    </svg>
-  )
-}
-
-function MoonIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
-    </svg>
+            </g>
+          ))}
+        </g>
+      </motion.svg>
+    </button>
   )
 }
