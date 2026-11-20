@@ -6,6 +6,13 @@ from flask import Flask, jsonify, request
 
 from backend.services.pdf_extraction import extract_pdf_text
 
+import uuid
+from dotenv import load_dotenv
+from backend.services.llm import LLMError, generate_questions
+
+load_dotenv()
+
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
@@ -48,13 +55,13 @@ def extract():
             status_code = 200
 
     return response, status_code
-
+        
 @app.errorhandler(413)
 def upload_too_large(_error):
     return jsonify({
         "error": "Upload exceeds the 10 MiB request limit. Choose a smaller PDF."
     }), 413
-
+    
 quizzes = {}
 
 
@@ -79,11 +86,9 @@ def create_quiz():
 
     try:
         questions = generate_questions(text[:15000])
-    except ValueError:
-        return jsonify({"error": "The AI returned an unusable quiz. Please try again."}), 502
-    except Exception:
-        return jsonify({"error": "Quiz generation failed. Please try again."}), 502
-
+    except LLMError as error:
+        return jsonify({"error": str(error)}), 502
+        
     for i, q in enumerate(questions, start=1):
         q["id"] = i
 
@@ -118,3 +123,4 @@ def submit_quiz(quiz_id):
     ]
     score = sum(r["correct"] for r in results)
     return jsonify({"score": score, "total": len(questions), "results": results})
+   
