@@ -121,8 +121,11 @@ export async function finishSession(sessionId) {
   const quizzes = []
   for (const { quizId, answers } of server.deferredAnswers(sessionId)) {
     const result = await flask.submitQuiz(quizId, answers)
-    quizzes.push({ quizId, score: result.score, total: result.total, answers })
-    graded.push(...server.applySubmitResults(sessionId, quizId, result.results ?? []))
+    // Flask saves the first submission and returns it (with its `answers`) on every retry:
+    // show what was saved, not what this browser sent this time.
+    const saved = result.answers && typeof result.answers === 'object' ? result.answers : answers
+    quizzes.push({ quizId, score: result.score, total: result.total, answers: saved })
+    graded.push(...server.applySubmitResults(sessionId, quizId, result.results ?? [], saved))
   }
   return { graded, quizzes }
 }

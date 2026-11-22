@@ -314,7 +314,10 @@ export function deferredAnswers(sessionId) {
 }
 
 // Step 2: apply Flask's results in quiz order, as if each had been graded on the spot.
-export function applySubmitResults(sessionId, quizId, results) {
+// savedAnswers: the choices Flask saved with the result ({ "<questionId>": index }). Flask keeps
+// the FIRST submission, so after a retry these can differ from the picks in this browser; the
+// saved ones win, so "your answer" always matches the verdict.
+export function applySubmitResults(sessionId, quizId, results, savedAnswers = null) {
   const session = sessions.get(sessionId)
   if (!session) throw new ApiError('This quiz session has expired. Start a new one.', 410)
   const graded = []
@@ -322,7 +325,8 @@ export function applySubmitResults(sessionId, quizId, results) {
     if (item.remote?.quizId !== quizId || item.pendingChoice === null) continue
     const verdict = results.find((r) => String(r.id) === String(item.remote.questionId))
     if (!verdict) continue
-    const chosenIndex = item.pendingChoice
+    const saved = savedAnswers?.[String(item.remote.questionId)]
+    const chosenIndex = Number.isInteger(saved) ? saved : item.pendingChoice
     item.pendingChoice = null
     graded.push({ cardId, chosenIndex, ...submitAnswer(sessionId, { cardId, chosenIndex, verdict }) })
   }
