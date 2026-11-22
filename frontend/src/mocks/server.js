@@ -1,11 +1,14 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  MOCK SERVER: a stand-in for the Flask backend, running in the browser.
+//  PROGRESS SERVER: the game rules, running in the browser.
 // ════════════════════════════════════════════════════════════════════════════
 // The team agreed Flask keeps the correct answers and calculates scores and XP.
-// This file plays that role until the real API exists, so the rest of the app
-// is written exactly as it will be against Flask:
-//   - It owns the "database" (saved in localStorage under DB_KEY), including the
-//     answer key: correctIndex, answer, explanation, sourceSnippet.
+// Flask has no users, decks or XP yet, so this file plays that role, and the rest
+// of the app is written exactly as it will be against a real API:
+//   - It works on one "world" at a time (open/close below): the signed-in user's
+//     real data (src/lib/cloud.js, saved in Supabase) or their demo world (mock
+//     data, saved in this browser under their user id). Each world's `save` decides
+//     where changes go; this file never knows.
+//   - The world holds the answer key: correctIndex, answer, explanation, sourceSnippet.
 //   - The browser only ever receives PUBLIC card data (publicCard below). It
 //     learns whether an answer was right only from submitAnswer's response.
 //   - It tracks each quiz session (option order, attempts, misses, comebacks,
@@ -18,9 +21,6 @@ import { daysSince, isDue, isNewCard, masteryOf, schedule } from '../lib/srs.js'
 import { buildSession, toItem } from '../lib/session.js'
 import { dayKey, streakNow } from '../lib/selectors.js'
 
-const DB_KEY = 'studyquest:mock-db:v1'
-const OLD_SAVE_KEY = 'studyquest:demo:v2' // the pre-server save: migrated once, then removed
-
 // An error the API would send back as JSON: { "error": message } with an HTTP status.
 export class ApiError extends Error {
   constructor(message, status = 400) {
@@ -30,52 +30,36 @@ export class ApiError extends Error {
   }
 }
 
-/* ——— The "database" ——— */
+/* ——— The open world ——— */
 
-let db = null
+// world = { db, save(db), log?(answer), close?() }
+//   db:   { user, activity, decks, cards, reported }
+//   save: called after every change (the cloud world batches these into Supabase writes)
+//   log:  one graded answer, for the answer log (reviews table)
+let world = null
 
-function readJson(key) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
+export function open(next) {
+  close()
+  world = next
 }
 
-function seed() {
-  const fresh = structuredClone(dashboardResponse)
-  const old = readJson(OLD_SAVE_KEY)
-  if (old?.cards && old?.user) {
-    // Keep progress from the old browser save, filling in fields added since.
-    const freshById = new Map(fresh.cards.map((c) => [c.id, c]))
-    try {
-      localStorage.removeItem(OLD_SAVE_KEY)
-    } catch {
-      // ignore
-    }
-    return {
-      user: { ...fresh.user, ...old.user },
-      activity: old.activity ?? fresh.activity,
-      decks: old.decks ?? fresh.decks,
-      cards: old.cards.map((c) => ({ ...c, sourcePage: c.sourcePage ?? freshById.get(c.id)?.sourcePage ?? null })),
-      reported: old.reported ?? [],
-    }
-  }
-  return { user: fresh.user, activity: fresh.activity, decks: fresh.decks, cards: fresh.cards, reported: [] }
+export function close() {
+  world?.close?.()
+  world = null
+  sessions.clear()
 }
 
 function database() {
-  if (!db) db = readJson(DB_KEY) ?? seed()
-  return db
+  if (!world) throw new ApiError('You’re signed out. Log in again to keep going.', 401)
+  return world.db
 }
 
-function persist() {
-  try {
-    localStorage.setItem(DB_KEY, JSON.stringify(db))
-  } catch {
-    // Storage full or blocked: the demo keeps working, it just won't persist.
-  }
+const persist = () => world?.save(world.db)
+
+// A fresh demo world: the mock decks, cards, XP and streak.
+export function demoSeed() {
+  const fresh = structuredClone(dashboardResponse)
+  return { user: fresh.user, activity: fresh.activity, decks: fresh.decks, cards: fresh.cards, reported: [] }
 }
 
 // What the browser may know about a card. Never the answer, explanation or snippet.
@@ -275,6 +259,16 @@ export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade 
   const deck = d.decks.find((dk) => dk.id === card.deckId)
   if (deck) deck.lastStudiedAt = new Date(now).toISOString()
   persist()
+  world?.log?.({
+    cardId: card.id,
+    deckId: card.deckId,
+    correct,
+    chosenIndex: selfGraded ? null : chosenIndex,
+    selfGrade: selfGraded ? selfGrade : null,
+    xp: scored.xp,
+    combo: session.combo,
+    answeredAt: new Date(now).toISOString(),
+  })
 
   return structuredClone({
     correct,
@@ -393,14 +387,7 @@ function saveDeck({ deck, cards }) {
   return structuredClone({ deck, cards: cards.map(publicCard) })
 }
 
-// PATCH /api/me  { firstName, lastName }
-export function updateProfile({ firstName, lastName }) {
-  if (!firstName?.trim()) throw new ApiError('First name can’t be empty.', 400)
-  const d = database()
-  d.user = { ...d.user, firstName: firstName.trim(), lastName: (lastName ?? '').trim() }
-  persist()
-  return structuredClone(d.user)
-}
+// (Your name lives in your Supabase profile: see src/state/AuthProvider.jsx.)
 
 // POST /api/cards/:id/report
 export function reportQuestion(cardId) {
@@ -411,14 +398,3 @@ export function reportQuestion(cardId) {
   return { ok: true }
 }
 
-// Demo only: forget everything and start again from the mock data.
-export function resetDemo() {
-  db = null
-  sessions.clear()
-  try {
-    localStorage.removeItem(DB_KEY)
-    localStorage.removeItem(OLD_SAVE_KEY)
-  } catch {
-    // ignore
-  }
-}

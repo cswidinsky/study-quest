@@ -1,13 +1,14 @@
 // The one place the app talks to "the server".
 //
-// Two modes (src/lib/apiMode.js; switch in Settings or with ?mock=1 / ?live=1):
-//   live → the real Flask API (src/flask.js) generates quizzes from PDFs and
-//          grades every answer. Flask has no users, decks or XP yet, so your
-//          progress (decks, XP, streak, memory schedule) is kept by the
-//          in-browser progress store (src/mocks/server.js), using Flask's verdicts.
-//   mock → everything runs in the browser on demo data. The demo safety net.
-// Functions marked TODO(backend) are still served by the progress store in both
-// modes, until Flask has those endpoints.
+// After sign-in, openWorld() opens one of two worlds for the signed-in user:
+//   real → their own data in Supabase (src/lib/cloud.js). The real Flask API
+//          (src/flask.js) generates quizzes from PDFs and grades every answer.
+//   demo → Demo mode (Settings): sample decks, XP and grading, all in the browser,
+//          saved per user and never mixed with real data. The demo safety net.
+// Flask has no users, decks or XP yet, so the progress server (src/mocks/server.js)
+// applies the game rules in both worlds, using Flask's verdicts for Flask decks.
+// Functions marked TODO(backend) are served by that progress server until Flask
+// has those endpoints.
 //
 // Rules the team agreed:
 //   - The browser never sees correct answers before answering, and never grades.
@@ -19,9 +20,46 @@
 import { generationKeywords, generationStages, GENERATED_POOL_SIZE } from './mocks/data.js'
 import * as server from './mocks/server.js'
 import * as flask from './flask.js'
-import { getApiMode } from './lib/apiMode.js'
+import { getApiMode, setApiMode } from './lib/apiMode.js'
+import { openCloudWorld } from './lib/cloud.js'
+import { demoWorldKey, readJson, removeKey, writeJson } from './lib/storage.js'
 
 export const isLive = () => getApiMode() === 'live'
+
+// Open the signed-in user's world: { userId, joinedAt, demo, onSyncError }.
+// Returns false if another openWorld/closeWorld happened meanwhile (that one wins).
+let openSeq = 0
+export async function openWorld({ userId, joinedAt, demo, onSyncError }) {
+  const ticket = ++openSeq
+  server.close()
+  setApiMode(demo ? 'mock' : 'live')
+  perAnswer = null
+  const world = demo ? demoWorld(userId) : await openCloudWorld({ id: userId, created_at: joinedAt }, { onError: onSyncError })
+  if (ticket !== openSeq) {
+    world.close?.()
+    return false
+  }
+  server.open(world)
+  return true
+}
+
+// Close the open world (sign-out, switching Demo mode). Pending cloud writes are sent first.
+export function closeWorld() {
+  openSeq += 1
+  server.close()
+}
+
+// Demo mode: the mock decks and progress, saved in this browser under this user's id only.
+function demoWorld(userId) {
+  const key = demoWorldKey(userId)
+  return { db: readJson(key) ?? server.demoSeed(), save: (db) => writeJson(key, db) }
+}
+
+// Demo mode only: start the demo world again from the sample data.
+export function resetDemo(userId) {
+  closeWorld()
+  removeKey(demoWorldKey(userId))
+}
 
 // Is Flask up? (Settings shows this.)
 export const checkServer = () => flask.health()
@@ -73,7 +111,7 @@ export async function submitAnswer(sessionId, { cardId, chosenIndex = null, self
   if (!target) return call(120, () => server.submitAnswer(sessionId, { cardId, chosenIndex, selfGrade }))
 
   if (!isLive()) {
-    throw new Error('This deck is checked by the StudyQuest server. Turn on “Use the StudyQuest server” in Settings.')
+    throw new Error('This deck is checked by the StudyQuest server. Turn off Demo mode in Settings to play it.')
   }
   if (perAnswer !== false) {
     const verdict = await flask.answerQuestion(target.quizId, target.questionId, chosenIndex)
@@ -174,19 +212,9 @@ export function createDeck(payload) {
   return call(500, () => server.createManualDeck(payload))
 }
 
-// TODO(backend): PATCH /api/me { firstName, lastName } → user
-export function updateProfile(patch) {
-  return call(200, () => server.updateProfile(patch))
-}
-
 // TODO(backend): POST /api/cards/:id/report → 204
 export function reportQuestion(cardId) {
   return call(150, () => server.reportQuestion(cardId))
-}
-
-// Demo only (no backend equivalent): wipe the mock server's saved data.
-export function resetDemo() {
-  return call(0, () => server.resetDemo())
 }
 
 export { generationKeywords, generationStages, GENERATED_POOL_SIZE }

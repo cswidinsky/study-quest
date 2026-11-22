@@ -10,7 +10,7 @@ import CountUp from '../components/CountUp.jsx'
 import FillBar from '../components/FillBar.jsx'
 import StreakFlame from '../components/StreakFlame.jsx'
 import TiltCard from '../components/TiltCard.jsx'
-import { AlertIcon, ArrowRightIcon, CalendarIcon, PlusIcon, RefreshIcon } from '../components/icons.jsx'
+import { AlertIcon, ArrowRightIcon, BoltIcon, CalendarIcon, PlusIcon, RefreshIcon, UploadIcon } from '../components/icons.jsx'
 
 // The screen answers "What should I study right now?" — "Due for review" is the biggest block.
 // Choreography: the greeting rises word by word, then the blocks follow one after another;
@@ -23,13 +23,14 @@ const MAX_DUE_ROWS = 4
 const pct = (n) => `${n}%`
 
 export default function Dashboard() {
-  const { status, data, reload } = useGame()
+  const { status, error, data, reload } = useGame()
   const rise = useRise()
 
-  if (status === 'error') return <LoadError onRetry={reload} />
+  if (status === 'error') return <LoadError onRetry={reload} message={error} />
   if (!data) return <DashboardSkeleton />
 
   const { user, activity, upcoming, decks } = data
+  if (decks.length === 0) return <FirstRun firstName={user.firstName} />
   const dueDecks = decks
     .filter((d) => d.dueCount > 0)
     .sort((a, b) => examOrder(a) - examOrder(b) || b.dueCount - a.dueCount)
@@ -576,17 +577,103 @@ function DashboardSkeleton() {
   )
 }
 
-function LoadError({ onRetry }) {
+function LoadError({ onRetry, message }) {
   return (
     <div className="mx-auto max-w-[1100px] px-4 pt-7 pb-16 sm:px-6 lg:pt-24">
       <h1 className="text-[32px] font-semibold tracking-tight">Home</h1>
-      <div className="panel mt-8 flex items-center gap-3 rounded-3xl p-5 text-sm">
+      <div className="panel mt-8 flex flex-wrap items-center gap-3 rounded-3xl p-5 text-sm">
         <AlertIcon className="size-5 shrink-0 text-error" />
-        <p className="flex-1">Couldn’t load your decks and progress. Check your connection and try again.</p>
+        <p className="min-w-0 flex-1 basis-60">
+          Couldn’t load your decks and progress. {message || 'Check your connection and try again.'}
+        </p>
         <Button variant="secondary" size="sm" onClick={onRetry}>
           Retry
         </Button>
       </div>
     </div>
+  )
+}
+
+/* ——— First run: a brand-new account with no decks yet ——— */
+
+const FIRST_STEPS = [
+  ['Answer the questions', 'Every right answer on the first try earns XP. Harder questions earn more.'],
+  ['Build a streak', 'Study a little each day and keep the flame lit. Combos multiply your XP.'],
+  ['Remember it for the exam', 'Reviews come back just before you’d forget, so it sticks.'],
+]
+
+function FirstRun({ firstName }) {
+  const rise = useRise()
+  return (
+    <motion.div
+      className="mx-auto max-w-[1100px] px-4 pt-7 pb-24 sm:px-6 lg:pt-24"
+      initial="hidden"
+      animate="show"
+      variants={stagger(0.08, 0.05)}
+    >
+      <motion.header variants={rise}>
+        <h1 className="text-[32px] leading-tight font-semibold tracking-tight sm:text-[44px]">Welcome, {firstName}.</h1>
+        <p className="mt-2 max-w-2xl text-base text-muted sm:text-lg">Let’s turn your first lecture into a quiz. It takes about a minute.</p>
+      </motion.header>
+
+      <div className="mt-9 grid grid-cols-12 gap-3 sm:gap-4 lg:mt-12">
+        <motion.a
+          variants={rise}
+          href="#/new"
+          className="panel group relative col-span-12 flex min-h-[300px] flex-col justify-between overflow-hidden rounded-3xl p-6 transition-[scale] duration-150 ease-out active:scale-[0.99] sm:p-8 lg:col-span-7"
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-24 -bottom-24 size-80 rounded-full opacity-70 transition-[opacity] duration-300 group-hover:opacity-100"
+            style={{ background: 'radial-gradient(closest-side, var(--ambient-a), transparent)' }}
+          />
+          <span className="relative grid size-14 place-items-center rounded-2xl bg-accent text-on-accent glow-accent">
+            <UploadIcon className="size-7" />
+          </span>
+          <span className="relative mt-10 block">
+            <span className="block text-2xl font-semibold tracking-tight sm:text-[32px] sm:leading-tight">Upload your first lecture PDF</span>
+            <span className="mt-2 block max-w-[44ch] text-muted">
+              Slides or notes, up to 10 MB. StudyQuest reads it and writes multiple-choice questions, each one linked back to the page it
+              came from.
+            </span>
+            <span className="mt-6 inline-flex h-11 items-center gap-2 rounded-full bg-accent px-5 text-[15px] font-medium text-on-accent glow-accent transition-[background-color] duration-150 group-hover:bg-accent-hover">
+              Upload a PDF
+              <ArrowRightIcon />
+            </span>
+          </span>
+        </motion.a>
+
+        <motion.section variants={rise} className="panel col-span-12 rounded-3xl p-6 sm:p-8 lg:col-span-5" aria-labelledby="next-heading">
+          <h2 id="next-heading" className="font-semibold">
+            Then it becomes a game
+          </h2>
+          <ol className="mt-5 space-y-5">
+            {FIRST_STEPS.map(([title, text], i) => (
+              <li key={title} className="flex gap-3.5">
+                <span
+                  className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${
+                    ['bg-accent-soft text-accent', 'bg-secondary-soft text-secondary', 'bg-sun/20 text-[#b37800] dark:text-sun'][i]
+                  }`}
+                  aria-hidden="true"
+                >
+                  {[<BoltIcon key="b" className="size-4" />, <StreakFlame key="s" lit className="size-4" />, <RefreshIcon key="r" className="size-4" />][i]}
+                </span>
+                <span>
+                  <span className="block font-medium">{title}</span>
+                  <span className="mt-0.5 block text-sm text-muted">{text}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-7 text-sm text-muted">
+            Want to look around first?{' '}
+            <a href="#/settings" className="font-medium text-text underline decoration-border decoration-2 underline-offset-4 hover:decoration-accent">
+              Turn on Demo mode
+            </a>{' '}
+            to play with sample decks. Your account stays as it is.
+          </p>
+        </motion.section>
+      </div>
+    </motion.div>
   )
 }

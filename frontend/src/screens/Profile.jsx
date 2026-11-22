@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { motion } from 'motion/react'
 import { useGame } from '../state/game.js'
+import { useAuth } from '../state/auth.js'
 import { levelProgress } from '../lib/levels.js'
 import { formatNumber, plural } from '../lib/format.js'
 import { deckStyle } from '../lib/deck.js'
@@ -15,7 +16,8 @@ import { ArrowRightIcon } from '../components/icons.jsx'
 
 // You: name, level, records, and the courses you're studying.
 export default function Profile() {
-  const { data, updateProfile, showToast } = useGame()
+  const { data, showToast } = useGame()
+  const { fullName, updateFullName } = useAuth()
   const rise = useRise()
   if (!data) return null
 
@@ -26,9 +28,9 @@ export default function Profile() {
   const totalCards = decks.reduce((s, d) => s + d.cardCount, 0)
   const mastered = decks.reduce((s, d) => s + d.masteredCount, 0)
 
-  async function save(firstName, lastName) {
+  async function save(name) {
     try {
-      await updateProfile({ firstName, lastName })
+      await updateFullName(name)
       showToast({ kind: 'info', message: 'Name saved.' })
     } catch (error) {
       showToast({ kind: 'info', message: `Couldn’t save your name: ${error.message}` })
@@ -88,7 +90,7 @@ export default function Profile() {
           </dl>
         </motion.section>
 
-        <NameForm rise={rise} user={user} onSave={save} />
+        <NameForm rise={rise} fullName={fullName} onSave={save} />
 
         <motion.section variants={rise} className="panel col-span-12 rounded-3xl p-4 sm:p-6" aria-labelledby="courses-heading">
           <h2 id="courses-heading" className="text-sm font-semibold">
@@ -133,16 +135,15 @@ function Record({ label, children }) {
 // The name form. It only mounts once the saved data has loaded (Profile returns
 // null before that), so its fields always start from the saved name, even when
 // you open or refresh the Profile page directly.
-function NameForm({ rise, user, onSave }) {
+function NameForm({ rise, fullName, onSave }) {
   const id = useId()
-  const [first, setFirst] = useState(user.firstName)
-  const [last, setLast] = useState(user.lastName)
-  const changed = first.trim() !== user.firstName || last.trim() !== user.lastName
+  const [name, setName] = useState(fullName)
+  const changed = name.trim().replace(/\s+/g, ' ') !== fullName
 
   function submit(e) {
     e.preventDefault()
-    if (!first.trim()) return
-    onSave(first.trim(), last.trim())
+    if (!name.trim()) return
+    onSave(name)
   }
 
   return (
@@ -151,15 +152,10 @@ function NameForm({ rise, user, onSave }) {
         Your name
       </h2>
       <p className="mt-0.5 text-xs text-muted">Shown on your dashboard greeting.</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Field label="First name" htmlFor={`${id}-first`}>
-          <TextInput id={`${id}-first`} value={first} onChange={(e) => setFirst(e.target.value)} required autoComplete="given-name" />
-        </Field>
-        <Field label="Last name" htmlFor={`${id}-last`}>
-          <TextInput id={`${id}-last`} value={last} onChange={(e) => setLast(e.target.value)} autoComplete="family-name" />
-        </Field>
-      </div>
-      <Button type="submit" className="mt-5" disabled={!changed || !first.trim()}>
+      <Field label="Full name" htmlFor={`${id}-name`} className="mt-4">
+        <TextInput id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} autoComplete="name" />
+      </Field>
+      <Button type="submit" className="mt-5" disabled={!changed || !name.trim()}>
         Save name
       </Button>
     </motion.form>

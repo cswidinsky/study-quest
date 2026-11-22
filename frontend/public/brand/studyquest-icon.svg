@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-101 -108 216 216" width="512" height="512">
+  <!-- top face -->
+  <polygon points="0,0 86.6,-50 0,-100 -86.6,-50" fill="#FFA26B"/>
+  <!-- left face (S) -->
+  <polygon points="0,0 -86.6,-50 -86.6,50 0,100" fill="#FF6B2C"/>
+  <!-- right face (Q) -->
+  <polygon points="0,0 86.6,-50 86.6,50 0,100" fill="#C9461A"/>
+  <!-- S on left face -->
+  <g transform="matrix(0.866,0.5,0,1,-86.6,-50)">
+    <path d="M76 24 H24 V50 H76 V76 H24" fill="none" stroke="#16161A" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
+  </g>
+  <!-- Q on right face -->
+  <g transform="matrix(0.866,-0.5,0,1,0,0)">
+    <rect x="24" y="24" width="52" height="52" fill="none" stroke="#16161A" stroke-width="13"/>
+    <path d="M58 58 L110 110" stroke="#14C2D0" stroke-width="13" stroke-linecap="square"/>
+  </g>
+</svg>
