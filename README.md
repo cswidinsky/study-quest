@@ -1,44 +1,79 @@
-# study-quest
-Gamified study application
+# Study Quest
 
-## Backend
+An AI-powered, gamified study application that turns lecture PDFs into
+multiple-choice quizzes.
 
-Flask backend with PDF text extraction using PyMuPDF.
-Supports selectable text only; OCR is not included.
+## Project goal
 
-### Setup
+Students upload study material, generate quizzes, answer questions, and
+receive feedback and XP.
 
-Run from the repository root (Windows PowerShell):
+The MVP focuses on:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+- PDF text extraction.
+- AI-generated multiple-choice questions.
+- Quiz presentation and server-side grading.
+- Basic XP and persistent progress.
+
+## Technology stack
+
+- **Frontend:** React, Vite, Tailwind CSS, and Motion.
+- **Backend:** Python and Flask.
+- **PDF processing:** PyMuPDF.
+- **AI:** OpenAI Responses API, using `gpt-4.1-mini` by default.
+- **Persistence:** SQLite is proposed for the MVP.
+
+## Repository structure
+
+```text
+study-quest/
+├── backend/          # Flask application, PDF extraction, and AI services
+├── frontend/         # React application
+├── tests/            # Backend automated tests
+├── requirements.txt  # Python dependencies
+└── README.md
 ```
 
-### Run
+## Development setup
 
-```powershell
-.\.venv\Scripts\python.exe -m flask --app backend.app run --debug
-```
+See the component guides:
 
-Local development server: http://127.0.0.1:5000
+- [Backend setup and testing](backend/README.md)
+- [Frontend setup and testing](frontend/README.md)
 
-### Tests
+Backend commands run from the repository root. Frontend commands run
+from `frontend/`.
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
-```
+## Current capabilities
 
-### Endpoints
+The backend supports PDF text extraction, a hosted LLM connection check,
+and structured MCQ generation through command-line tools.
 
-- `GET /api/health` — returns `{"status": "ok"}`.
-- `POST /api/extract` — accepts a PDF in multipart field `file`;
-  returns `{"text": "..."}`.
-- Errors return `{"error": "..."}` with status 400.
-- Requests exceeding 10 MiB return status 413.
+Quiz generation includes structural validation, shuffled answer options,
+and an insufficient-content outcome. Generated questions still require
+review for factual accuracy, ambiguity, and source references.
 
-### Code locations
+The frontend and backend are developed separately. Mock frontend behavior
+does not establish that the corresponding backend feature is connected.
+End-to-end quiz generation, grading, XP, and persistence require integration.
 
-- `backend/app.py` — Flask routes.
-- `backend/services/` — PDF extraction and future LLM integration.
-- `tests/` — automated tests.
+## Supported study material
+
+The initial quiz-generation workflow targets selectable-text lecture
+slides and study notes.
+
+OCR and syllabus-based study-ahead generation are not implemented.
+
+## Secrets and API usage
+
+Keep API credentials server-side and out of Git. Never place API keys in
+frontend code.
+
+Manual AI checks make paid OpenAI API requests. Automated backend tests
+use mocked model responses and do not incur API charges.
+
+## Collaboration
+
+Develop independently reviewable features on feature branches and open
+pull requests into `main`. Coordinate shared API contracts before
+connecting frontend and backend features.
