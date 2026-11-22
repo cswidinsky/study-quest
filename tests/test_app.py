@@ -1,10 +1,13 @@
+import json
 import unittest
 from io import BytesIO
-from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
+from unittest.mock import Mock, patch
 
 import pymupdf
 
-from backend.app import app, quizzes
+from backend.app import app
 from backend.services.quiz_generation import InsufficientContentError
 
 class TestApp(unittest.TestCase):
@@ -124,9 +127,23 @@ class TestApp(unittest.TestCase):
         self.assertIn("error", response.get_json())    
 
 class TestQuizRoutes(unittest.TestCase):
+    OWNER = "00000000-0000-4000-8000-000000000001"
+    OTHER_USER = "00000000-0000-4000-8000-000000000002"
+    QUIZ_ID = "00000000-0000-4000-8000-000000000003"
+    HEADERS = {"Authorization": "Bearer owner-token"}
+    OTHER_HEADERS = {"Authorization": "Bearer other-token"}
+
     def setUp(self):
         self.client = app.test_client()
-        self.enterContext(patch.dict(quizzes, clear=True))
+        self.quizzes = {}
+        self.attempts = {}
+        self.enterContext(patch.dict("os.environ", {
+            "SUPABASE_URL": "https://quiz-test.example",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
+            "SUPABASE_SECRET_KEY": "sb_secret_test",
+        }))
+        self.supabase = self.enterContext(patch("backend.services.quiz_store.build_opener"))
+        self.supabase.return_value = Mock(open=Mock(side_effect=self.supabase_request))
         self.question = {
             "id": 1,
             "question": "What are the basic units of life?",
@@ -139,6 +156,43 @@ class TestQuizRoutes(unittest.TestCase):
             "topic": "Cells",
         }
 
+    def supabase_request(self, request, timeout):
+        url = urlsplit(request.full_url)
+        self.assertEqual((url.scheme, url.netloc), ("https", "quiz-test.example"))
+        if url.path == "/auth/v1/user":
+            self.assertEqual(request.get_header("Apikey"), "sb_publishable_test")
+            users = {"Bearer owner-token": self.OWNER, "Bearer other-token": self.OTHER_USER}
+            user_id = users.get(request.get_header("Authorization"))
+            if user_id is None:
+                raise HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+            return BytesIO(json.dumps({"id": user_id}).encode())
+
+        self.assertEqual(request.get_header("Apikey"), "sb_secret_test")
+        self.assertIsNone(request.get_header("Authorization"))
+        is_quiz = url.path == "/rest/v1/quizzes"
+        if not is_quiz:
+            self.assertEqual(url.path, "/rest/v1/quiz_attempts")
+        table = self.quizzes if is_quiz else self.attempts
+        id_column = "id" if is_quiz else "quiz_id"
+        query = parse_qs(url.query)
+
+        if request.get_method() == "POST":
+            row = json.loads(request.data)
+            key = (row[id_column], row["owner_id"])
+            if is_quiz:
+                table[key] = row
+                return BytesIO()
+            self.assertEqual(request.get_header("Prefer"), "resolution=ignore-duplicates,return=representation")
+            if key in table:
+                return BytesIO(b"[]")
+            table[key] = row
+        else:
+            key = (query[id_column][0].removeprefix("eq."), query["owner_id"][0].removeprefix("eq."))
+            row = table.get(key)
+
+        fields = query["select"][0].split(",")
+        return BytesIO(json.dumps([{field: row[field] for field in fields}] if row else []).encode())
+
     def upload_pdf(self):
         with pymupdf.open() as document:
             page = document.new_page()
@@ -148,6 +202,7 @@ class TestQuizRoutes(unittest.TestCase):
         return self.client.post(
             "/api/quizzes",
             data={"file": (BytesIO(pdf_bytes), "lecture.pdf")},
+            headers=self.HEADERS,
         )
 
     def test_upload_fetch_and_grade_quiz(self):
@@ -170,13 +225,15 @@ class TestQuizRoutes(unittest.TestCase):
             "difficulty": "easy",
         }])
         url = f"/api/quizzes/{quiz['id']}"
-        fetched = self.client.get(url)
+        self.assertEqual(self.quizzes[(quiz["id"], self.OWNER)]["questions"], [self.question])
+        fetched = app.test_client().get(url, headers=self.HEADERS)
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.get_json(), quiz)
 
-        submitted = self.client.post(f"{url}/submit", json={"answers": {"1": 1}})
+        submitted = app.test_client().post(f"{url}/submit", json={"answers": {"1": 1}}, headers=self.HEADERS)
         self.assertEqual(submitted.status_code, 200)
         self.assertEqual(submitted.get_json(), {
+            "answers": {"1": 1},
             "score": 1,
             "total": 1,
             "results": [{
@@ -188,9 +245,18 @@ class TestQuizRoutes(unittest.TestCase):
                 "sourceSnippet": self.question["sourceSnippet"],
             }],
         })
+        reloaded = app.test_client().get(f"{url}/result", headers=self.HEADERS)
+        self.assertEqual(reloaded.status_code, 200)
+        self.assertEqual(reloaded.headers["Cache-Control"], "no-store")
+        self.assertEqual(reloaded.get_json(), submitted.get_json())
+
+        retry = self.client.post(f"{url}/submit", json={"answers": {"1": 0}}, headers=self.HEADERS)
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.get_json(), submitted.get_json())
+        self.assertEqual(len(self.attempts), 1)
 
     def test_invalid_submissions_return_bad_request(self):
-        quizzes["test-quiz"] = [self.question]
+        self.quizzes[(self.QUIZ_ID, self.OWNER)] = {"questions": [self.question]}
         invalid_payloads = (
             [1],
             {"answers": []},
@@ -201,7 +267,7 @@ class TestQuizRoutes(unittest.TestCase):
         )
         for payload in invalid_payloads:
             with self.subTest(payload=payload):
-                response = self.client.post("/api/quizzes/test-quiz/submit", json=payload)
+                response = self.client.post(f"/api/quizzes/{self.QUIZ_ID}/submit", json=payload, headers=self.HEADERS)
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("error", response.get_json())
 
@@ -214,7 +280,29 @@ class TestQuizRoutes(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.get_json(), {"error": "Try fewer questions."})
-        self.assertEqual(quizzes, {})
+        self.assertEqual(self.quizzes, {})
+
+    def test_quiz_routes_require_a_valid_user_token(self):
+        url = f"/api/quizzes/{self.QUIZ_ID}"
+        for headers in ({}, {"Authorization": "Bearer expired-token"}):
+            with self.subTest(headers=headers):
+                self.assertEqual(self.client.post("/api/quizzes", headers=headers).status_code, 401)
+                self.assertEqual(self.client.get(url, headers=headers).status_code, 401)
+                self.assertEqual(self.client.post(f"{url}/submit", headers=headers).status_code, 401)
+                self.assertEqual(self.client.get(f"{url}/result", headers=headers).status_code, 401)
+
+    def test_other_users_cannot_read_or_grade_quizzes(self):
+        self.quizzes[(self.QUIZ_ID, self.OWNER)] = {"questions": [self.question]}
+        url = f"/api/quizzes/{self.QUIZ_ID}"
+        self.assertEqual(self.client.get(f"{url}/result", headers=self.HEADERS).status_code, 404)
+        graded = self.client.post(f"{url}/submit", json={"answers": {"1": 1}}, headers=self.HEADERS)
+        self.assertEqual(graded.status_code, 200)
+
+        self.assertEqual(self.client.get(url, headers=self.OTHER_HEADERS).status_code, 404)
+        self.assertEqual(self.client.get(f"{url}/result", headers=self.OTHER_HEADERS).status_code, 404)
+        rejected = self.client.post(f"{url}/submit", json={"answers": {"1": 0}}, headers=self.OTHER_HEADERS)
+        self.assertEqual(rejected.status_code, 404)
+        self.assertEqual(len(self.attempts), 1)
 
 
 if __name__ == "__main__":
