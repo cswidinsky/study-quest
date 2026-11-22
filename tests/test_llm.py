@@ -2,9 +2,8 @@ import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-from openai import OpenAIError
 
-from backend.services.llm import LLMError, generate_questions, summarize_lecture
+from backend.services.llm import LLMError, summarize_lecture
 
 
 class TestLLMService(unittest.TestCase):
@@ -48,71 +47,6 @@ class TestLLMService(unittest.TestCase):
                 self.assertEqual(request["model"], "test-model")
                 self.assertFalse(request["store"])
 
-    def test_generate_questions_returns_questions(self):
-        payload = '{"questions": [{"text": "Q?", "choices": ["A", "B"], "answer": 1}]}'
-
-        with patch.dict(
-            os.environ,
-            {"LLM_API_KEY": "test-only-key", "LLM_MODEL": "test-model"},
-        ):
-            with patch("backend.services.llm.OpenAI") as factory:
-                client = factory.return_value.__enter__.return_value
-                client.chat.completions.create.return_value = SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content=payload))]
-                )
-
-                questions = generate_questions("Cells are the basic units of life.")
-
-        self.assertEqual(questions[0]["answer"], 1)
-
-    def test_malformed_output_raises_llm_error(self):
-        with patch.dict(
-            os.environ,
-            {"LLM_API_KEY": "test-only-key", "LLM_MODEL": "test-model"},
-        ):
-            with patch("backend.services.llm.OpenAI") as factory:
-                client = factory.return_value.__enter__.return_value
-                client.chat.completions.create.return_value = SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content="not json"))]
-                )
-
-                with self.assertRaises(LLMError):
-                    generate_questions("Cells are the basic units of life.")
-
-    def test_generate_questions_empty_input_does_not_contact_openai(self):
-        with patch("backend.services.llm.OpenAI") as client:
-            with self.assertRaises(ValueError):
-                generate_questions("   ")
-
-            client.assert_not_called()
-
-    def test_invalid_answer_index_raises_llm_error(self):
-        payload = '{"questions": [{"text": "Q?", "choices": ["A", "B"], "answer": 5}]}'
-
-        with patch.dict(
-            os.environ,
-            {"LLM_API_KEY": "test-only-key", "LLM_MODEL": "test-model"},
-        ):
-            with patch("backend.services.llm.OpenAI") as factory:
-                client = factory.return_value.__enter__.return_value
-                client.chat.completions.create.return_value = SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content=payload))]
-                )
-
-                with self.assertRaises(LLMError):
-                    generate_questions("Cells are the basic units of life.")
-
-    def test_api_error_raises_llm_error(self):
-        with patch.dict(
-            os.environ,
-            {"LLM_API_KEY": "test-only-key", "LLM_MODEL": "test-model"},
-        ):
-            with patch("backend.services.llm.OpenAI") as factory:
-                client = factory.return_value.__enter__.return_value
-                client.chat.completions.create.side_effect = OpenAIError("boom")
-
-                with self.assertRaises(LLMError):
-                    generate_questions("Cells are the basic units of life.")
 
 if __name__ == "__main__":
     unittest.main()

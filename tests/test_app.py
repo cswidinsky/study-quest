@@ -1,8 +1,11 @@
 import unittest
-import pymupdf
-from backend.app import app
 from io import BytesIO
 from unittest.mock import patch
+
+import pymupdf
+
+from backend.app import app, quizzes
+from backend.services.quiz_generation import InsufficientContentError
 
 class TestApp(unittest.TestCase):
     def setUp(self):
@@ -119,6 +122,100 @@ class TestApp(unittest.TestCase):
 
         self.assertEqual(response.status_code, 413)
         self.assertIn("error", response.get_json())    
+
+class TestQuizRoutes(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+        self.enterContext(patch.dict(quizzes, clear=True))
+        self.question = {
+            "id": 1,
+            "question": "What are the basic units of life?",
+            "options": ["Organs", "Cells", "Tissues", "Organ systems"],
+            "correctIndex": 1,
+            "difficulty": "easy",
+            "explanation": "Cells are the basic units of life.",
+            "sourcePage": 1,
+            "sourceSnippet": "Cells are the basic units of life.",
+            "topic": "Cells",
+        }
+
+    def upload_pdf(self):
+        with pymupdf.open() as document:
+            page = document.new_page()
+            page.insert_text((72, 72), self.question["sourceSnippet"])
+            pdf_bytes = document.tobytes()
+
+        return self.client.post(
+            "/api/quizzes",
+            data={"file": (BytesIO(pdf_bytes), "lecture.pdf")},
+        )
+
+    def test_upload_fetch_and_grade_quiz(self):
+        with patch(
+            "backend.app.generate_quiz", return_value={"questions": [self.question]}
+        ) as generate:
+            created = self.upload_pdf()
+
+        generate.assert_called_once()
+        lecture_text = generate.call_args.args[0]
+        self.assertIn("--- Page 1 ---", lecture_text)
+        self.assertIn(self.question["sourceSnippet"], lecture_text)
+
+        self.assertEqual(created.status_code, 201)
+        quiz = created.get_json()
+        self.assertEqual(quiz["questions"], [{
+            "id": 1,
+            "text": self.question["question"],
+            "choices": self.question["options"],
+            "difficulty": "easy",
+        }])
+        url = f"/api/quizzes/{quiz['id']}"
+        fetched = self.client.get(url)
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.get_json(), quiz)
+
+        submitted = self.client.post(f"{url}/submit", json={"answers": {"1": 1}})
+        self.assertEqual(submitted.status_code, 200)
+        self.assertEqual(submitted.get_json(), {
+            "score": 1,
+            "total": 1,
+            "results": [{
+                "id": 1,
+                "correct": True,
+                "correct_answer": 1,
+                "explanation": self.question["explanation"],
+                "sourcePage": 1,
+                "sourceSnippet": self.question["sourceSnippet"],
+            }],
+        })
+
+    def test_invalid_submissions_return_bad_request(self):
+        quizzes["test-quiz"] = [self.question]
+        invalid_payloads = (
+            [1],
+            {"answers": []},
+            {"answers": {}},
+            {"answers": {"2": 1}},
+            {"answers": {"1": True}},
+            {"answers": {"1": 4}},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                response = self.client.post("/api/quizzes/test-quiz/submit", json=payload)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("error", response.get_json())
+
+    def test_insufficient_content_returns_error_without_creating_quiz(self):
+        with patch(
+            "backend.app.generate_quiz",
+            side_effect=InsufficientContentError("Try fewer questions."),
+        ):
+            response = self.upload_pdf()
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.get_json(), {"error": "Try fewer questions."})
+        self.assertEqual(quizzes, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,14 +1,14 @@
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pymupdf
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
+from backend.services.llm import LLMError
 from backend.services.pdf_extraction import extract_pdf_text
-
-import uuid
-from dotenv import load_dotenv
-from backend.services.llm import LLMError, generate_questions
+from backend.services.quiz_generation import QuizValidationError, generate_quiz
 
 load_dotenv()
 
@@ -85,12 +85,11 @@ def create_quiz():
             return jsonify({"error": str(error)}), 400
 
     try:
-        questions = generate_questions(text[:15000])
-    except LLMError as error:
+        questions = generate_quiz(text)["questions"]
+    except (LLMError, QuizValidationError) as error:
         return jsonify({"error": str(error)}), 502
-        
-    for i, q in enumerate(questions, start=1):
-        q["id"] = i
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 422
 
     quiz_id = str(uuid.uuid4())
     quizzes[quiz_id] = questions
@@ -98,7 +97,15 @@ def create_quiz():
 
 
 def strip_answers(questions):
-    return [{"id": q["id"], "text": q["text"], "choices": q["choices"]} for q in questions]
+    return [
+        {
+            "id": question["id"],
+            "text": question["question"],
+            "choices": question["options"],
+            "difficulty": question["difficulty"],
+        }
+        for question in questions
+    ]
 
 
 @app.get("/api/quizzes/<quiz_id>")
@@ -115,12 +122,30 @@ def submit_quiz(quiz_id):
     if questions is None:
         return jsonify({"error": "Quiz not found."}), 404
 
-    submitted = (request.get_json(silent=True) or {}).get("answers", {})
-    results = [
-        {"id": q["id"], "correct": submitted.get(str(q["id"])) == q["answer"],
-         "correct_answer": q["answer"]}
-        for q in questions
-    ]
-    score = sum(r["correct"] for r in results)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("answers"), dict):
+        return jsonify({"error": "Send your selections in an answers object."}), 400
+
+    submitted = payload["answers"]
+    question_ids = {str(question["id"]) for question in questions}
+    if set(submitted) != question_ids:
+        return jsonify({"error": "Select one answer for every question."}), 400
+
+    results = []
+    for question in questions:
+        question_id = question["id"]
+        selected = submitted[str(question_id)]
+        if type(selected) is not int or not 0 <= selected < len(question["options"]):
+            return jsonify({"error": f"Invalid option for question {question_id}."}), 400
+
+        results.append({
+            "id": question_id,
+            "correct": selected == question["correctIndex"],
+            "correct_answer": question["correctIndex"],
+            "explanation": question["explanation"],
+            "sourcePage": question["sourcePage"],
+            "sourceSnippet": question["sourceSnippet"],
+        })
+
+    score = sum(result["correct"] for result in results)
     return jsonify({"score": score, "total": len(questions), "results": results})
-   
