@@ -145,6 +145,28 @@ gamification (#6, #20).
   the difficulty indicator, XP treats the card as medium, and the feedback falls back to
   "See page N of your notes".
 
+## Live mode (Flask, issue #21)
+
+- **Two modes**, chosen in `src/lib/apiMode.js`: `live` (default) and `mock`. A URL flag `?mock=1` or
+  `?live=1` switches and is remembered (localStorage `studyquest:api-mode`). There's also the
+  Settings → "Use the StudyQuest server" switch, and `VITE_API_MODE=mock` sets the build default.
+  Mock mode is the demo safety net: it never needs the server.
+- **`src/flask.js`** is the only file that calls Flask (`/api/health`, `POST /api/quizzes` with
+  FormData `file`, `POST /api/quizzes/<id>/answer`, `POST /api/quizzes/<id>/submit`). It turns
+  failures into plain messages (`FlaskError`). Dev uses the Vite proxy; a deploy sets
+  `VITE_API_BASE_URL` to the Flask host (which then needs CORS or a rewrite).
+- In live mode a PDF upload becomes a **Flask-graded deck** (`saveFlaskDeck`). Its cards carry
+  `remote: { quizId, questionId }` and `correctIndex: null`. Their options keep Flask's order
+  (grading is by index), and each answer is learned locally once Flask reveals it, so later
+  reviews work offline. Flashcards stay locked until then.
+- **Grading:** `api.submitAnswer` tries `/answer` first (feedback and combos after every answer).
+  If the route is missing (a non-JSON 404/405), the session falls back: picks are saved
+  ("Answer saved"), and `finishSession` sends them all to `/submit` at the end of the main
+  round. XP, combos and the schedule are still computed by `mocks/server.js` from Flask's
+  verdicts.
+- Flask keeps quizzes in memory: after a restart, old Flask decks can't be graded until the PDF is
+  uploaded again (the UI says so).
+
 ## Data
 
 - **Mock seed data lives in `src/mocks/data.js`** (full cards, answer key included). Each card has

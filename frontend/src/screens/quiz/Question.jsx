@@ -94,7 +94,11 @@ function Option({ index, text, answered, checking, locked, isCorrect, onPick }) 
   const ref = useRef(null)
   const [ripple, setRipple] = useState(null)
   const chosen = answered?.chosen === index
-  const state = !answered ? (checking ? 'checking' : 'idle') : isCorrect ? (chosen ? 'right' : 'reveal') : chosen ? 'wrong' : 'dim'
+  const state = !answered
+    ? checking ? 'checking' : 'idle'
+    : answered.result.deferred // saved for grading at the end: no right/wrong yet
+      ? chosen ? 'saved' : 'dim'
+      : isCorrect ? (chosen ? 'right' : 'reveal') : chosen ? 'wrong' : 'dim'
 
   function pick(e) {
     if (answered || locked) return
@@ -112,6 +116,7 @@ function Option({ index, text, answered, checking, locked, isCorrect, onPick }) 
     right: 'border-success bg-surface shadow-[0_0_0_1px_var(--color-success),0_12px_40px_-12px_var(--color-success)]',
     reveal: 'border-success/70 bg-surface',
     wrong: 'border-error bg-surface',
+    saved: 'border-(--deck) bg-surface shadow-[0_0_0_1px_var(--deck)]',
     dim: 'border-border bg-surface/50 opacity-45',
   }
 

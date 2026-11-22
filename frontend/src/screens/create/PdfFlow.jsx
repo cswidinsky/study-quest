@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { generateDeckFromPdf, generationKeywords, generationStages } from '../../api.js'
+import { generateDeckFromPdf, generationKeywords, generationStages, isLive } from '../../api.js'
 import { formatBytes } from '../../lib/format.js'
 import Button from '../../components/Button.jsx'
 import { Field, TextInput } from '../../components/Field.jsx'
@@ -13,7 +13,8 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 // That limit counts the whole upload request, so leave a little room for the form data around the file.
 const MAX_MB = 10
 const MAX_BYTES = MAX_MB * 1024 * 1024 - 64 * 1024
-const QUESTION_COUNTS = [5, 10] // the mock writes up to 10 (GENERATED_POOL_SIZE)
+// Demo data can write 5 or 10; the Flask server always writes 5 for now.
+const questionCounts = () => (isLive() ? [5] : [5, 10])
 const EASE_OUT = [0.23, 1, 0.32, 1]
 
 function validate(file) {
@@ -30,7 +31,7 @@ export default function PdfFlow({ decks, onDone }) {
   const [phase, setPhase] = useState('pick') // 'pick' | 'details' | 'generating'
   const [file, setFile] = useState(null)
   const [error, setError] = useState(null)
-  const [details, setDetails] = useState({ title: '', course: '', questionCount: 10 })
+  const [details, setDetails] = useState({ title: '', course: '', questionCount: isLive() ? 5 : 10 })
   const [job, setJob] = useState({ stageIndex: 0, progress: 0 })
   const abortRef = useRef(null)
 
@@ -73,7 +74,8 @@ export default function PdfFlow({ decks, onDone }) {
       onDone(result)
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setError('Something went wrong while writing your quiz. Try again.')
+        // Show the server's own message (it says what went wrong: timeout, bad PDF, offline…).
+        setError(err.message || 'Something went wrong while writing your quiz. Try again.')
         setPhase('details')
       }
     }
@@ -273,7 +275,7 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
       <fieldset className="mt-5">
         <legend className="mb-2 text-sm font-medium">Questions</legend>
         <div className="inline-flex rounded-full border border-border bg-surface p-0.5">
-          {QUESTION_COUNTS.map((n) => {
+          {questionCounts().map((n) => {
             const checked = details.questionCount === n
             return (
               <label

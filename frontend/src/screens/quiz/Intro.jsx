@@ -60,7 +60,7 @@ export default function Intro({ session, decks, mode, onMode, onStart, weakCount
         <div className="panel inline-flex rounded-full p-1" role="radiogroup">
           {[
             { id: 'mc', label: 'Multiple choice', Icon: CardsIcon, disabled: !hasChoices },
-            { id: 'flash', label: 'Flashcards', Icon: FlipIcon },
+            { id: 'flash', label: 'Flashcards', Icon: FlipIcon, disabled: session.gradedByFlask },
           ].map(({ id, label, Icon, disabled }) => (
             <button
               key={id}
@@ -82,7 +82,11 @@ export default function Intro({ session, decks, mode, onMode, onStart, weakCount
           ))}
         </div>
         <p className="mt-2 text-xs text-muted">
-          {mode === 'flash' ? 'You grade yourself, so flashcards earn 75% of the XP.' : 'Four options, one right. Keys 1–4 work too.'}
+          {session.gradedByFlask
+            ? 'The StudyQuest server checks each answer. Flashcards unlock once you’ve seen the answers.'
+            : mode === 'flash'
+              ? 'You grade yourself, so flashcards earn 75% of the XP.'
+              : 'Four options, one right. Keys 1–4 work too.'}
         </p>
       </motion.fieldset>
 

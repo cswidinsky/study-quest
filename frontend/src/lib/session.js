@@ -22,8 +22,11 @@ const shuffle = (list) => {
 }
 
 // Shuffle a multiple-choice card's options so position can't be memorised.
+// Cards graded by Flask whose answer we don't know yet keep the server's order,
+// because Flask grades by position (correct_answer is an index into its order).
 export function toItem(card) {
   if (!card.options) return { card, options: null, correctIndex: null }
+  if (card.correctIndex == null) return { card, options: card.options, correctIndex: null }
   const order = shuffle(card.options.map((_, i) => i))
   return { card, options: order.map((i) => card.options[i]), correctIndex: order.indexOf(card.correctIndex) }
 }

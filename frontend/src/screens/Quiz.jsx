@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useGame } from '../state/game.js'
-import { rematchItems, revealAnswer, startSession, submitAnswer } from '../api.js'
+import { finishSession, rematchItems, revealAnswer, startSession, submitAnswer } from '../api.js'
 import { comboMultiplier } from '../lib/levels.js'
 import { isWeak } from '../lib/selectors.js'
 import { EASE_CINEMA } from '../lib/motion.js'
@@ -71,6 +71,8 @@ function QuizRun({ initialSession }) {
   const [index, setIndex] = useState(0)
   const [round, setRound] = useState('main') // main | rematch
   const [pending, setPending] = useState(null) // { chosen } while the server grades
+  const [waiting, setWaiting] = useState(0) // picks saved for grading at the end (older Flask)
+  const [gradingError, setGradingError] = useState(null)
   const [answered, setAnswered] = useState(null) // { chosen, correct, result }
   const [log, setLog] = useState([])
   const [missed, setMissed] = useState([])
@@ -122,6 +124,14 @@ function QuizRun({ initialSession }) {
         setPending(null)
       }
 
+      // Older Flask (no per-answer endpoint): the pick is saved and graded when the quiz ends.
+      if (result.deferred) {
+        setAnswered({ chosen, correct: null, result })
+        setWaiting((n) => n + 1)
+        play('tap')
+        return
+      }
+
       applyAnswer(result)
       const { correct } = result
       setAnswered({ chosen, correct, result })
@@ -154,15 +164,54 @@ function QuizRun({ initialSession }) {
 
   const reveal = useCallback(() => revealAnswer(session.sessionId, item.card.id), [session.sessionId, item])
 
+  // End of the main round with picks still waiting: send them to Flask, then carry on
+  // exactly as if each had been graded on the spot.
+  const gradeWaiting = useCallback(async () => {
+    setPhase('grading')
+    setGradingError(null)
+    try {
+      const graded = await finishSession(session.sessionId)
+      const byId = new Map(queue.map((i) => [i.card.id, i]))
+      const missedNow = []
+      let best = 0
+      for (const r of graded) {
+        applyAnswer(r)
+        best = Math.max(best, r.combo)
+        const it = byId.get(r.cardId)
+        if (!r.correct && it) missedNow.push(it)
+      }
+      setLog((l) => [
+        ...l,
+        ...graded.map((r) => ({
+          card: byId.get(r.cardId)?.card ?? r.card,
+          correct: r.correct,
+          round: 'main',
+          xp: r.xp,
+          reason: r.reason,
+          masteryBefore: r.masteryBefore,
+          masteryAfter: r.masteryAfter,
+        })),
+      ])
+      setBestCombo((b) => Math.max(b, best))
+      setMissed(missedNow)
+      setWaiting(0)
+      play('results')
+      setPhase(missedNow.length ? 'rematch-break' : 'results')
+    } catch (error) {
+      setGradingError(error.message)
+    }
+  }, [session.sessionId, queue, applyAnswer])
+
   const next = useCallback(() => {
     setAnswered(null)
     if (index + 1 < queue.length) {
       setIndex((i) => i + 1)
       return
     }
-    if (round === 'main' && missed.length) setPhase('rematch-break')
+    if (round === 'main' && waiting > 0) gradeWaiting()
+    else if (round === 'main' && missed.length) setPhase('rematch-break')
     else setPhase('results')
-  }, [index, queue.length, round, missed.length])
+  }, [index, queue.length, round, missed.length, waiting, gradeWaiting])
 
   // Keyboard: 1–4 or A–D to answer; Enter to continue.
   useEffect(() => {
@@ -220,6 +269,12 @@ function QuizRun({ initialSession }) {
   }
 
   function endSession() {
+    if (waiting > 0) {
+      // Flask grades a whole quiz at once, so a half-finished one can't be scored.
+      showToast({ kind: 'info', message: 'Quiz left early. Answer every question to get it graded by the server.' })
+      navigate('/')
+      return
+    }
     if (log.length) setPhase('results')
     else navigate('/')
   }
@@ -290,6 +345,10 @@ function QuizRun({ initialSession }) {
         </div>
       )}
 
+      {phase === 'grading' && (
+        <Grading error={gradingError} onRetry={gradeWaiting} count={waiting} />
+      )}
+
       {phase === 'rematch-break' && (
         <RematchBreak count={missed.length} practice={session.practice} onStart={startRematch} onSkip={() => setPhase('results')} />
       )}
@@ -306,6 +365,36 @@ function QuizRun({ initialSession }) {
       )}
 
       <Effects effects={effects} />
+    </div>
+  )
+}
+
+// While Flask grades a quiz submitted at the end (older servers without per-answer checks).
+function Grading({ count, error, onRetry }) {
+  return (
+    <div className="mx-auto max-w-2xl px-4 pt-24 pb-24 text-center sm:px-6" aria-live="polite">
+      {error ? (
+        <>
+          <h1 className="text-[30px] font-semibold tracking-tight">Couldn’t get your results</h1>
+          <p className="mt-2 text-muted">{error}</p>
+          <div className="mt-8 flex flex-wrap justify-center gap-2">
+            <Button size="lg" onClick={onRetry}>
+              Try again
+            </Button>
+            <Button as="a" href="#/" variant="secondary" size="lg">
+              Back to dashboard
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mx-auto size-14 rounded-full border-4 border-border border-t-accent motion-safe:animate-spin" aria-hidden="true" />
+          <h1 className="mt-6 text-[30px] font-semibold tracking-tight">Checking your answers…</h1>
+          <p className="mt-2 text-muted">
+            The server is marking all <span className="num">{count}</span>.
+          </p>
+        </>
+      )}
     </div>
   )
 }

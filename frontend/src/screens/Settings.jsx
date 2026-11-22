@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useGame } from '../state/game.js'
 import { useTheme } from '../theme.js'
@@ -8,6 +8,8 @@ import { EASE_OUT, stagger, useRise } from '../lib/motion.js'
 import Button from '../components/Button.jsx'
 import Switch from '../components/Switch.jsx'
 import ThemeToggle from '../components/ThemeToggle.jsx'
+import { checkServer } from '../api.js'
+import { getApiMode, setApiMode } from '../lib/apiMode.js'
 
 // Sound, vibration, theme, motion, and "Reset demo".
 export default function Settings() {
@@ -46,6 +48,10 @@ export default function Settings() {
             if (on) setTimeout(() => buzz('correct'), 0)
           }} />
         </Row>
+      </motion.section>
+
+      <motion.section variants={rise} className="panel mt-4 rounded-3xl px-4 sm:px-6" aria-label="Server">
+        <ServerRow />
       </motion.section>
 
       <motion.section variants={rise} className="panel mt-4 divide-y divide-border rounded-3xl px-4 sm:px-6" aria-label="Look and motion">
@@ -119,5 +125,45 @@ function Row({ title, detail, children, htmlFor }) {
       </div>
       <div className="flex items-center gap-2">{children}</div>
     </div>
+  )
+}
+
+// Live (Flask) or demo data. Demo data is the safety net if the server is down.
+function ServerRow() {
+  const [mode, setMode] = useState(getApiMode)
+  const [status, setStatus] = useState('checking') // 'checking' | 'up' | 'down'
+
+  useEffect(() => {
+    let live = true
+    checkServer().then((up) => live && setStatus(up ? 'up' : 'down'))
+    return () => {
+      live = false
+    }
+  }, [])
+
+  function change(on) {
+    const next = on ? 'live' : 'mock'
+    setApiMode(next)
+    setMode(next)
+  }
+
+  const statusText = { checking: 'Checking the server…', up: 'Server connected.', down: 'Server not reachable right now.' }[status]
+
+  return (
+    <Row
+      title="Use the StudyQuest server"
+      htmlFor="set-server"
+      detail={
+        mode === 'live'
+          ? `${statusText} New decks are written and marked by the server.`
+          : `Off: everything runs on demo data in this browser. ${statusText}`
+      }
+    >
+      <span
+        className={`size-2.5 rounded-full ${status === 'up' ? 'bg-success' : status === 'down' ? 'bg-error' : 'bg-border'}`}
+        aria-hidden="true"
+      />
+      <Switch id="set-server" label="Use the StudyQuest server" checked={mode === 'live'} onChange={change} />
+    </Row>
   )
 }
