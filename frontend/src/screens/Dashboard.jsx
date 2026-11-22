@@ -633,7 +633,7 @@ function FirstRun({ firstName }) {
           <span className="relative mt-10 block">
             <span className="block text-2xl font-semibold tracking-tight sm:text-[32px] sm:leading-tight">Upload your first lecture PDF</span>
             <span className="mt-2 block max-w-[44ch] text-muted">
-              Slides or notes, up to 10 MB. StudyQuest reads it and writes multiple-choice questions, each one linked back to the page it
+              Slides or notes, up to 4 MB. StudyQuest reads it and writes multiple-choice questions, each one linked back to the page it
               came from.
             </span>
             <span className="mt-6 inline-flex h-11 items-center gap-2 rounded-full bg-accent px-5 text-[15px] font-medium text-on-accent glow-accent transition-[background-color] duration-150 group-hover:bg-accent-hover">

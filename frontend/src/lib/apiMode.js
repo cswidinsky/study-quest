@@ -10,5 +10,6 @@ export const setApiMode = (next) => {
 }
 
 // Where Flask lives. Empty = same origin (in dev, Vite proxies /api to port 5000).
-// For a deployed frontend with Flask elsewhere, set VITE_API_BASE_URL (e.g. https://api.example.com).
+// On Vercel, /api is on the same domain (vercel.json), so this stays empty. Only if Flask runs on
+// another domain, set VITE_API_BASE_URL (e.g. https://api.example.com).
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
