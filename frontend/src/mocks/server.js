@@ -115,7 +115,7 @@ export function startSession({ kind = 'due', deckId, cardIds } = {}) {
       missed: false,
       comebackAwarded: false,
       remote: item.card.remote ?? null, // { quizId, questionId } for cards Flask grades
-      pendingChoice: null, // submit-at-end fallback: the pick, waiting for Flask's verdict
+      pendingChoice: null, // live quiz: the saved pick, until the whole quiz is submitted to Flask
     })
   }
   const practice = built.items.length > 0 && [...items.values()].every((i) => !i.countsForXp)
@@ -187,7 +187,7 @@ function learnAnswer(card, item, verdict) {
 // POST /api/sessions/:id/answers  { cardId, chosenIndex } or { cardId, selfGrade: 'got'|'missed' }
 // The server grades the answer, applies the XP rules and the schedule, and saves.
 // With Flask: `verdict` is Flask's answer for this pick, or `deferred: true` keeps the pick
-// until the quiz is submitted (servers without the per-answer endpoint).
+// until the whole quiz is submitted (the live PDF quiz is marked all at once).
 export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade = null, verdict = null, deferred = false }) {
   const { session, item } = sessionItem(sessionId, cardId)
   const card = findCard(cardId)
@@ -291,7 +291,15 @@ export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade 
   })
 }
 
-// Submit-at-end fallback, step 1: the picks waiting for Flask, as POST /submit wants them.
+// The questions of a Flask quiz as this account stored them (text and choices, no answers):
+// used to show a saved result when Flask can't send the question text.
+export function flaskQuizQuestions(quizId) {
+  return database()
+    .cards.filter((c) => c.remote?.quizId === quizId)
+    .map((c) => ({ id: c.remote.questionId, deckId: c.deckId, text: c.question, choices: c.options ?? [] }))
+}
+
+// Batch grading, step 1: the picks waiting for Flask, as POST /submit wants them.
 export function deferredAnswers(sessionId) {
   const session = sessions.get(sessionId)
   if (!session) throw new ApiError('This quiz session has expired. Start a new one.', 410)

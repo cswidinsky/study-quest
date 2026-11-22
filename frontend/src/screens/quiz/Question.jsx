@@ -14,7 +14,7 @@ const DIFFICULTY = { easy: 1, medium: 2, hard: 3 }
 // One question: header (deck, topic, difficulty, mastery), then either four options
 // (multiple choice) or a card that flips (flashcards). After answering, the feedback panel.
 // The correct option is unknown here until the server's answer arrives (answered.result).
-export default function Question({ item, deck, flash, pending, answered, onAnswer, onReveal, onNext, onReport, reported, practice, liveCard }) {
+export default function Question({ item, deck, flash, pending, answered, onAnswer, onReveal, onNext, nextLabel, onReport, reported, practice, liveCard }) {
   const level = masteryOf(liveCard.review)
   const difficulty = DIFFICULTY[item.card.difficulty] ? item.card.difficulty : null // may be missing
 
@@ -55,6 +55,7 @@ export default function Question({ item, deck, flash, pending, answered, onAnswe
             deck={deck}
             answered={answered}
             onNext={onNext}
+            nextLabel={nextLabel}
             onReport={onReport}
             reported={reported}
             practice={practice}
@@ -94,14 +95,17 @@ function Option({ index, text, answered, checking, locked, isCorrect, onPick }) 
   const ref = useRef(null)
   const [ripple, setRipple] = useState(null)
   const chosen = answered?.chosen === index
+  // A live PDF quiz is marked all at once when it's submitted: until then a pick is only
+  // saved, and picking another option replaces it.
+  const changeable = Boolean(answered?.result.deferred)
   const state = !answered
     ? checking ? 'checking' : 'idle'
-    : answered.result.deferred // saved for grading at the end: no right/wrong yet
-      ? chosen ? 'saved' : 'dim'
+    : changeable
+      ? chosen ? 'saved' : checking ? 'checking' : 'idle'
       : isCorrect ? (chosen ? 'right' : 'reveal') : chosen ? 'wrong' : 'dim'
 
   function pick(e) {
-    if (answered || locked) return
+    if ((answered && !changeable) || (changeable && chosen) || locked) return
     const rect = ref.current.getBoundingClientRect()
     const x = e.clientX || rect.left + rect.width / 2
     const y = e.clientY || rect.top + rect.height / 2
@@ -125,12 +129,13 @@ function Option({ index, text, answered, checking, locked, isCorrect, onPick }) 
       ref={ref}
       type="button"
       onClick={pick}
-      disabled={(Boolean(answered) && !chosen && !isCorrect) || (locked && !checking)}
-      aria-disabled={Boolean(answered) || locked}
+      disabled={(Boolean(answered) && !changeable && !chosen && !isCorrect) || (locked && !checking)}
+      aria-disabled={(Boolean(answered) && !changeable) || locked}
+      aria-pressed={changeable ? chosen : undefined}
       aria-busy={checking || undefined}
       aria-keyshortcuts={`${index + 1} ${LETTERS[index]}`}
       className={`relative flex w-full items-center gap-3.5 overflow-hidden rounded-2xl border px-4 py-3.5 text-left text-[15px] transition-[border-color,background-color,opacity,box-shadow,scale] duration-200 ease-out sm:px-5 sm:py-4 sm:text-base ${
-        !answered ? 'active:scale-[0.985]' : ''
+        !answered || changeable ? 'active:scale-[0.985]' : ''
       } ${styles[state]}`}
       animate={
         state === 'wrong' && !reduce

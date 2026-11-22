@@ -12,7 +12,7 @@ import { ArrowRightIcon, FlagIcon, QuoteIcon } from '../../components/icons.jsx'
 // explanation, sourceSnippet and sourcePage may be missing, and the panel copes.
 // Picks the panel: the verdict, or "answer saved" when the server marks at the end.
 export default function Feedback(props) {
-  return props.answered.result.deferred ? <SavedNote onNext={props.onNext} /> : <Verdict {...props} />
+  return props.answered.result.deferred ? <SavedNote onNext={props.onNext} nextLabel={props.nextLabel} /> : <Verdict {...props} />
 }
 
 function Verdict({ deck, answered, onNext, onReport, reported, practice }) {
@@ -162,8 +162,8 @@ function XpLine({ correct, result, practice }) {
 // "Page 3" (sourcePage is the PDF page, 1-based).
 const pageLabel = (page) => `Page ${page}`
 
-// Older Flask servers grade a whole quiz at the end: the pick is saved, no verdict yet.
-function SavedNote({ onNext }) {
+// A live PDF quiz is marked all at once when you submit: the pick is saved, no verdict yet.
+function SavedNote({ onNext, nextLabel = 'Next' }) {
   const nextRef = useRef(null)
   useEffect(() => {
     const t = setTimeout(() => nextRef.current?.focus({ preventScroll: true }), 50)
@@ -179,10 +179,10 @@ function SavedNote({ onNext }) {
     >
       <p className="text-sm">
         <span className="font-medium">Answer saved.</span>{' '}
-        <span className="text-muted">The server marks the whole quiz when you finish.</span>
+        <span className="text-muted">You can change it until you submit the quiz.</span>
       </p>
       <Button ref={nextRef} size="lg" onClick={onNext} aria-keyshortcuts="Enter">
-        Next
+        {nextLabel}
         <ArrowRightIcon />
       </Button>
     </motion.section>

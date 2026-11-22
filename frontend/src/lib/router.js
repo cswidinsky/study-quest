@@ -6,6 +6,7 @@ import { scrollToTop } from './smoothScroll.js'
 // A tiny hash router:
 //   #/  #/new  #/deck/<id>  #/stats  #/profile  #/settings
 //   #/review (everything due)  #/review/deck/<id>  #/review/rematch
+//   #/results/<quizId> (a marked live quiz, loaded from the server; read-only)
 // Every screen change runs inside a View Transition: the browser snapshots the
 // old screen, React renders the new one, and CSS (index.css) choreographs the
 // switch. Elements with the same name on both screens morph into each other.
@@ -22,6 +23,8 @@ export function matchRoute(path) {
   if (study) return { name: 'review', params: { kind: 'deck', id: study[1] } }
   const deck = path.match(/^\/deck\/([\w-]+)$/)
   if (deck) return { name: 'deck', params: { id: deck[1] } }
+  const result = path.match(/^\/results\/([\w-]+)$/)
+  if (result) return { name: 'result', params: { id: result[1] } }
   return { name: 'home', params: {} }
 }
 

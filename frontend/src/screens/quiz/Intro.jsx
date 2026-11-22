@@ -83,7 +83,7 @@ export default function Intro({ session, decks, mode, onMode, onStart, weakCount
         </div>
         <p className="mt-2 text-xs text-muted">
           {session.gradedByFlask
-            ? 'The StudyQuest server checks each answer. Flashcards unlock once you’ve seen the answers.'
+            ? 'Pick an answer for every question, then submit once: the StudyQuest server marks the whole quiz. Flashcards unlock after that.'
             : mode === 'flash'
               ? 'You grade yourself, so flashcards earn 75% of the XP.'
               : 'Four options, one right. Keys 1–4 work too.'}

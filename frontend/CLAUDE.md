@@ -182,13 +182,23 @@ gamification (#6, #20).
   `remote: { quizId, questionId }` and `correctIndex: null`. Their options keep Flask's order
   (grading is by index), and each answer is learned locally once Flask reveals it, so later
   reviews work offline. Flashcards stay locked until then.
-- **Grading:** `api.submitAnswer` tries `/answer` first (feedback and combos after every answer).
-  If the route is missing (a non-JSON 404/405), the session falls back: picks are saved
-  ("Answer saved"), and `finishSession` sends them all to `/submit` at the end of the main
-  round. XP, combos and the schedule are still computed by `mocks/server.js` from Flask's
-  verdicts.
-- Flask keeps quizzes in memory: after a restart, old Flask decks can't be graded until the PDF is
-  uploaded again (the UI says so).
+- **Grading (MVP: end-of-quiz batch grading).** For a live PDF quiz, `api.submitAnswer` only
+  saves each pick ("Answer saved", changeable until submit). After the last question, "Ready to
+  submit?" lists every pick; `finishSession` sends them in ONE `POST /submit` (keys = question
+  ids, values = indices in Flask's option order). On failure nothing is applied, the picks stay
+  and the button says "Try again". On success, Flask's verdicts are applied (XP and schedule
+  still computed by `mocks/server.js`), and the results show Flask's `score`/`total` plus
+  `AnswerReview` (your choice, right/wrong, correct choice, explanation, PDF page and excerpt)
+  even if the rematch is skipped. No per-answer endpoint is used.
+- **Saved results:** after submitting, the address becomes `#/results/<quizId>`
+  (`screens/SavedResult.jsx`). It loads `GET /api/quizzes/<id>/result` (+ `GET /api/quizzes/<id>`
+  for the text, or this account's copy of the deck) and only displays: never submits or awards XP.
+  Until the backend adds that route, it says saved results aren't available yet.
+- **Auth:** every quiz request sends `Authorization: Bearer <Supabase access token>`
+  (`flask.js`). 401 → "session expired"; 404 → quiz/result unavailable (another account's, or
+  the server forgot it).
+- Flask keeps quizzes in memory (until the backend stores them in Supabase): after a restart, an
+  ungraded Flask deck can't be submitted until the PDF is uploaded again (the UI says so).
 
 ## Data
 

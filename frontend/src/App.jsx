@@ -19,6 +19,7 @@ import Quiz from './screens/Quiz.jsx'
 import Stats from './screens/Stats.jsx'
 import Profile from './screens/Profile.jsx'
 import Settings from './screens/Settings.jsx'
+import SavedResult from './screens/SavedResult.jsx'
 
 const SCREENS = {
   home: Dashboard,
@@ -28,6 +29,7 @@ const SCREENS = {
   stats: Stats,
   profile: Profile,
   settings: Settings,
+  result: SavedResult,
 }
 
 export default function App() {
@@ -102,7 +104,7 @@ function Screens() {
   const route = matchRoute(path)
   const Screen = SCREENS[route.name]
   return (
-    <AppShell active={route.name === 'deck' ? 'home' : route.name} focus={route.name === 'review'}>
+    <AppShell active={route.name === 'deck' || route.name === 'result' ? 'home' : route.name} focus={route.name === 'review'}>
       {/* key = path: each screen mounts fresh, so its entrance plays every visit */}
       <Screen key={path} {...route.params} />
     </AppShell>
