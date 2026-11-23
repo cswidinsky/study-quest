@@ -1,79 +1,164 @@
-# Study Quest
+# StudyQuest
 
-An AI-powered, gamified study application that turns lecture PDFs into
-multiple-choice quizzes.
+**Your notes, played as a game.** StudyQuest turns lecture PDFs into multiple-choice quizzes and
+makes studying them feel like a game.
 
-## Project goal
+**Live:** https://www.studyquest.co
 
-Students upload study material, generate quizzes, answer questions, and
-receive feedback and XP.
+## What it does
 
-The MVP focuses on:
+1. **Sign up** with your email. Each account has its own decks, XP and streak.
+2. **Upload a lecture PDF.** AI writes a five-question quiz from your notes.
+3. **Answer every question, then submit once.** The server marks the whole quiz.
+4. **See your results.** You get your score and, for each question, your answer, the correct
+   one, an explanation, and the line from your PDF it came from (with the page number).
+5. **Earn XP and keep coming back.** Harder questions and longer memory earn more, combos
+   multiply it, and you level up as XP builds. Missed questions come back in a rematch round,
+   and spaced reviews bring cards back just before you'd forget them.
 
-- PDF text extraction.
-- AI-generated multiple-choice questions.
-- Quiz presentation and server-side grading.
-- Basic XP and persistent progress.
+**Demo mode** (Settings) opens a sample world with ready-made decks, so you can try everything
+without uploading anything. Your real data is untouched and comes back when you switch it off.
 
-## Technology stack
+## Tech stack
 
-- **Frontend:** React, Vite, Tailwind CSS, and Motion.
-- **Backend:** Python and Flask.
-- **PDF processing:** PyMuPDF.
-- **AI:** OpenAI Responses API, using `gpt-4.1-mini` by default.
-- **Persistence:** SQLite is proposed for the MVP.
+| Part | Built with |
+| --- | --- |
+| Frontend | React 19, Vite, Tailwind CSS 4, Motion |
+| Accounts and data | Supabase: Auth, Postgres, and Row Level Security (each user sees only their own rows) |
+| Backend | Python 3.12, Flask |
+| PDF reading | PyMuPDF |
+| AI | OpenAI Responses API (`gpt-4.1-mini` by default) |
+| Hosting | Vercel: one project, with the frontend at `/` and Flask at `/api` (`vercel.json`) |
 
 ## Repository structure
 
 ```text
 study-quest/
-├── backend/          # Flask application, PDF extraction, and AI services
-├── frontend/         # React application
-├── tests/            # Backend automated tests
-├── requirements.txt  # Python dependencies
-└── README.md
+├── frontend/            # React app (Vite)
+├── backend/             # Flask API: PDF extraction, AI quiz generation, grading, quiz storage
+├── tests/               # Backend tests
+├── supabase/
+│   ├── schema.sql       # Accounts data: profiles, progress, decks, cards, answer log
+│   ├── migrations/      # Quiz storage used by Flask (quizzes, saved results)
+│   └── email-templates/ # Branded sign-up, password reset and login-link emails
+├── requirements.txt     # Python dependencies
+└── vercel.json          # Vercel deployment (two services)
 ```
 
-## Development setup
+## Run it locally
 
-See the component guides:
+You need **Node.js 22.12+**, **Python 3.12**, a **Supabase** project and an **OpenAI API key**
+(with billing). Backend commands run from the repository root; frontend commands run from
+`frontend/`.
 
-- [Backend setup and testing](backend/README.md)
-- [Frontend setup and testing](frontend/README.md)
+### 1. Set up Supabase (once)
 
-Backend commands run from the repository root. Frontend commands run
-from `frontend/`.
+In your Supabase project, open **SQL Editor → New query**, then paste and **Run** each file:
 
-## Current capabilities
+1. [`supabase/schema.sql`](supabase/schema.sql) creates the account tables. It's safe to run
+   again.
+2. [`supabase/migrations/20261122000100_quiz_storage.sql`](supabase/migrations/20261122000100_quiz_storage.sql)
+   creates the quiz storage tables. Run it once only.
 
-The backend supports PDF text extraction, a hosted LLM connection check,
-and structured MCQ generation through command-line tools.
+Then, under **Authentication → URL Configuration**, set **Site URL** to `http://localhost:5173`
+and add `http://localhost:5173/**` to **Redirect URLs**. The branded email templates are
+optional: paste them from `supabase/email-templates/` into **Authentication → Emails →
+Templates**.
 
-Quiz generation includes structural validation, shuffled answer options,
-and an insufficient-content outcome. Generated questions still require
-review for factual accuracy, ambiguity, and source references.
+### 2. Environment variables
 
-The frontend and backend are developed separately. Mock frontend behavior
-does not establish that the corresponding backend feature is connected.
-End-to-end quiz generation, grading, XP, and persistence require integration.
+Never commit real values. `.env` and `.env.local` are gitignored.
 
-## Supported study material
+**Frontend:** create `frontend/.env.local` (template: [`frontend/.env.example`](frontend/.env.example)):
 
-The initial quiz-generation workflow targets selectable-text lecture
-slides and study notes.
+```ini
+VITE_SUPABASE_URL=        # Supabase → Project Settings → API → Project URL
+VITE_SUPABASE_ANON_KEY=   # the publishable (anon) key; it's safe in the browser
+```
 
-OCR and syllabus-based study-ahead generation are not implemented.
+**Backend (Flask):** create `.env` in the repository root, or set the variables in your terminal:
 
-## Secrets and API usage
+```ini
+LLM_API_KEY=              # OpenAI API key (secret)
+LLM_MODEL=                # optional; defaults to gpt-4.1-mini
+SUPABASE_URL=             # same Project URL as above
+SUPABASE_PUBLISHABLE_KEY= # same publishable key as above
+SUPABASE_SECRET_KEY=      # Supabase secret key (server only; never give it a VITE_ prefix)
+```
 
-Keep API credentials server-side and out of Git. Never place API keys in
-frontend code.
+To keep the OpenAI key out of files entirely (Windows PowerShell, this terminal only):
 
-Manual AI checks make paid OpenAI API requests. Automated backend tests
-use mocked model responses and do not incur API charges.
+```powershell
+$k = Read-Host "OpenAI API key" -AsSecureString
+$env:LLM_API_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+```
 
-## Collaboration
+### 3. Start the backend (Flask)
 
-Develop independently reviewable features on feature branches and open
-pull requests into `main`. Coordinate shared API contracts before
-connecting frontend and backend features.
+From the repository root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m flask --app backend.app run --debug
+```
+
+Flask runs at `http://127.0.0.1:5000`.
+
+### 4. Start the frontend
+
+In a second terminal:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Open http://localhost:5173. Vite forwards `/api` requests to Flask on port 5000, so the
+frontend always calls relative `/api` URLs.
+
+### 5. Checks
+
+```powershell
+# Backend tests (repository root; Supabase and OpenAI are mocked, so these are free)
+.\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
+
+# Frontend lint and production build (in frontend/)
+npm run lint
+npm run build
+```
+
+More detail: [backend guide](backend/README.md) · [frontend guide](frontend/README.md).
+
+## Deployment
+
+The live site runs on Vercel as one project with two services, both configured in
+[`vercel.json`](vercel.json). The Vite frontend serves `/`. Flask serves `/api/*`, with up to
+300 seconds per request for AI generation. Set the environment variables above in the Vercel
+project settings, and leave `VITE_API_BASE_URL` unset. PDF uploads are limited to 4 MB,
+because Vercel functions accept at most 4.5 MB per request.
+
+## Good to know
+
+- **Best with selectable-text PDFs** (lecture slides and notes). Scanned PDFs (OCR) aren't
+  supported yet.
+- **Check generated questions.** AI questions are validated for structure and must quote your
+  PDF, but they can still be wrong or ambiguous. Use "Report this question" if something's off.
+- **Keys stay server-side.** The OpenAI key and the Supabase secret key live only in Flask's
+  environment. The browser only ever gets the publishable Supabase key and its own login token.
+- **Live AI calls cost money.** Automated tests use mocked responses and are free.
+
+## Team
+
+- **Subhaan Zaffar** ([@SubhaanZaffar](https://github.com/SubhaanZaffar)): frontend, UI/design,
+  accounts, Supabase, deployment
+- **Connor Swidinsky** ([@cswidinsky](https://github.com/cswidinsky)): Flask backend, PDF
+  extraction, AI quiz generation, quiz storage
+- **Olohigbe Uantioje** ([@Catsomiac](https://github.com/Catsomiac)): AI quiz generation and
+  marking, logo concept
+
+## Contributing
+
+Build each feature on its own branch and open a pull request into `main`. Agree on API changes
+between the frontend and backend before connecting them.
