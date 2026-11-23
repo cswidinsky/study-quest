@@ -14,8 +14,9 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 // little room for the form data around the file.
 const MAX_MB = 4
 const MAX_BYTES = MAX_MB * 1024 * 1024 - 64 * 1024
-// Demo data can write 5 or 10; the Flask server always writes 5 for now.
-const questionCounts = () => (isLive() ? [5] : [5, 10])
+// Demo data can write 5 or 10. The Flask server decides on its own: it asks for 5 and keeps
+// the ones it can check against the PDF (usually 4 or 5), so there's no choice to offer.
+const questionCounts = () => (isLive() ? [] : [5, 10])
 const EASE_OUT = [0.23, 1, 0.32, 1]
 
 function validate(file) {
@@ -273,7 +274,7 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
         </Field>
       </div>
 
-      <fieldset className="mt-5">
+      {questionCounts().length > 0 && <fieldset className="mt-5">
         <legend className="mb-2 text-sm font-medium">Questions</legend>
         <div className="inline-flex rounded-full border border-border bg-surface p-0.5">
           {questionCounts().map((n) => {
@@ -305,7 +306,7 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
             )
           })}
         </div>
-      </fieldset>
+      </fieldset>}
 
       {error && (
         <p role="alert" className="mt-4 flex items-center gap-2 text-sm">
@@ -334,7 +335,9 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
 // Key ideas float out of it as they are "found"; each finished step makes it pulse.
 function Generating({ file, job, questionCount, onCancel }) {
   const pct = Math.round(job.progress * 100)
-  const label = (stage) => (stage.id === 'write' ? `Writing ${questionCount} questions` : stage.label)
+  // Live: Flask decides how many questions survive its checks, so don't promise a number.
+  const label = (stage) =>
+    stage.id === 'write' ? (isLive() ? 'Writing your questions' : `Writing ${questionCount} questions`) : stage.label
 
   return (
     <div aria-live="polite">

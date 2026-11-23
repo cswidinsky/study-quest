@@ -8,7 +8,8 @@ makes studying them feel like a game.
 ## What it does
 
 1. **Sign up** with your email. Each account has its own decks, XP and streak.
-2. **Upload a lecture PDF.** AI writes a five-question quiz from your notes.
+2. **Upload a lecture PDF.** AI writes a quiz of up to five questions from your notes, each one
+   checked against the page it quotes.
 3. **Answer every question, then submit once.** The server marks the whole quiz.
 4. **See your results.** You get your score and, for each question, your answer, the correct
    one, an explanation, and the line from your PDF it came from (with the page number).
