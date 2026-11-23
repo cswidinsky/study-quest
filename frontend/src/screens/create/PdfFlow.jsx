@@ -437,6 +437,10 @@ function Core({ stageIndex, pct }) {
   )
 }
 
+// Live mode reads a real PDF we know nothing about yet, so its chips stay neutral.
+// Demo mode keeps the sample deck's own ideas (membrane transport).
+const LIVE_IDEAS = ['Key ideas', 'Definitions', 'Examples', 'Key terms', 'Main points', 'Page references']
+
 // While the "AI" reads, the ideas it finds drift out of the core and fade.
 function Ideas({ active }) {
   const reduce = useReducedMotion()
@@ -445,12 +449,13 @@ function Ideas({ active }) {
 
   useEffect(() => {
     if (!active || reduce) return
+    const ideas = isLive() ? LIVE_IDEAS : generationKeywords
     const timer = setInterval(() => {
       const i = count.current++
       const angle = -Math.PI / 2 + (i % 2 ? 1 : -1) * (0.5 + Math.random() * 0.9)
       setBubbles((b) => [
         ...b.slice(-5),
-        { id: i, text: generationKeywords[i % generationKeywords.length], dx: Math.cos(angle) * 150, dy: Math.sin(angle) * 95 },
+        { id: i, text: ideas[i % ideas.length], dx: Math.cos(angle) * 150, dy: Math.sin(angle) * 95 },
       ])
     }, 520)
     return () => clearInterval(timer)
