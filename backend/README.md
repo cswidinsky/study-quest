@@ -10,6 +10,7 @@ inside `backend/`.
 
 - Python 3.12 is verified.
 - An OpenAI API project with billing/quota is required for live AI requests.
+- A Supabase project is required for authenticated quiz routes.
 - No API credentials are required for automated tests or PDF extraction.
 
 ## Setup
@@ -74,6 +75,45 @@ Behavior:
 
 The extraction endpoint does not call OpenAI or generate a quiz.
 
+### Quiz routes
+
+Send the signed-in user's Supabase access token in the `Authorization: Bearer` header.
+
+| Method and path | Behavior |
+| --- | --- |
+| `POST /api/quizzes` | Accepts a PDF in the multipart `file` field and returns `201` with `id` and `questions`. |
+| `GET /api/quizzes/<id>` | Returns the owner's quiz with public question fields. |
+| `POST /api/quizzes/<id>/submit` | Grades and saves the whole quiz. Send `{"answers":{"1":0,"2":1,"3":2,"4":3,"5":0}}` with one zero-based choice index per question ID. |
+| `GET /api/quizzes/<id>/result` | Returns the owner's saved result after submission. |
+
+The public question fields are `id`, `text`, `choices`, and `difficulty`.
+The submit and saved-result routes return `answers`, `score`, `total`, and
+`results`. Each result contains `id`, `correct`, `correct_answer` (the
+zero-based index), `explanation`, `sourcePage`, and `sourceSnippet`.
+The first valid submission is saved. Later valid submissions for that quiz
+return the original result, including the original selections.
+
+Quiz routes return `401` for invalid or missing authentication, `404` for
+missing or inaccessible quizzes or results, and `503` when quiz storage is
+unavailable. Invalid submissions return `400`. PDFs with insufficient content
+return `422`.
+
+## Supabase configuration
+
+Apply [the quiz storage migration](../supabase/migrations/20261122000100_quiz_storage.sql)
+to the same hosted Supabase project used by the frontend. The migration creates
+two server-only tables. Flask verifies the user with Supabase Auth before
+reading or writing rows, and uses the verified user ID for ownership checks.
+
+| Flask environment variable | Value |
+| --- | --- |
+| `SUPABASE_URL` | Hosted project HTTPS URL |
+| `SUPABASE_PUBLISHABLE_KEY` | Project publishable key or legacy anon key |
+| `SUPABASE_SECRET_KEY` | Server-only secret key or legacy service-role key |
+
+Set these variables in the Flask environment locally and on the backend host.
+Keep `SUPABASE_SECRET_KEY` out of the frontend environment and source control.
+
 ## OpenAI configuration
 
 The service reads these process environment variables:
@@ -83,7 +123,8 @@ The service reads these process environment variables:
 | `LLM_API_KEY` | Required OpenAI API project key |
 | `LLM_MODEL` | Model name; defaults to `gpt-4.1-mini` |
 
-The application does not automatically load `.env` files.
+Flask loads `.env` files. The standalone AI check commands read the process
+environment.
 
 Configure the current PowerShell session:
 
@@ -184,8 +225,7 @@ appropriate grading or feedback step.
   references.
 - Insufficient-content detection relies on the model's judgment.
 - Syllabus-based study-ahead generation is not implemented.
-- Flask quiz-generation, submission, grading, and persistence endpoints
-  are separate integration work.
+- Each generated quiz supports one saved graded attempt.
 
 ## Automated tests
 
