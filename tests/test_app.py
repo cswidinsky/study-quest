@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pymupdf
 
 from backend.app import app
-from backend.services.quiz_generation import InsufficientContentError
+from backend.services.quiz_generation import InsufficientContentError, QuizValidationError
 
 class TestApp(unittest.TestCase):
     def setUp(self):
@@ -280,6 +280,22 @@ class TestQuizRoutes(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.get_json(), {"error": "Try fewer questions."})
+        self.assertEqual(self.quizzes, {})
+
+    def test_unusable_quiz_shows_friendly_message_not_validation_details(self):
+        raw = "Question 3: sourceSnippet must appear on sourcePage."
+        with (
+            patch("backend.app.generate_quiz", side_effect=QuizValidationError(raw)),
+            self.assertLogs("backend.app", level="WARNING"),
+        ):
+            response = self.upload_pdf()
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.get_json(),
+            {"error": "We couldn't build a quiz from that PDF. Try again, or try a different file."},
+        )
+        self.assertNotIn("sourceSnippet", response.get_data(as_text=True))
         self.assertEqual(self.quizzes, {})
 
     def test_quiz_routes_require_a_valid_user_token(self):

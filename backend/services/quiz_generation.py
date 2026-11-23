@@ -1,7 +1,10 @@
 import json
+import logging
+import math
 import os
 import re
 import random
+import unicodedata
 
 from openai import (
     APITimeoutError,
@@ -32,96 +35,152 @@ QUESTION_FIELDS = {
 DIFFICULTIES = ("easy", "medium", "hard")
 PAGE_MARKER = re.compile(r"^--- Page ([1-9]\d*) ---[ \t]*\r?$", re.MULTILINE)
 
+# A generated quiz is usable when at least this share of the requested questions
+# passes validation (4 of 5). Below that, generation is retried once.
+MIN_GOOD_SHARE = 0.75
 
-def validate_quiz(data, *, question_count, source_pages):
-    """Validate parsed model output before the backend uses it."""
+logger = logging.getLogger(__name__)
+
+# Curly quotes, primes and dash variants become their plain ASCII forms.
+_PUNCTUATION = str.maketrans({
+    "‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'",
+    "‹": "'", "›": "'", "´": "'", "`": "'",
+    "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"',
+    "«": '"', "»": '"',
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-",
+    "―": "-", "−": "-",
+    "­": None,  # soft hyphen: invisible, only marks where a word may break
+})
+# A word split across a line break with a hyphen: "concen-\ntration". PDF text often uses a
+# soft hyphen (U+00AD) or a Unicode hyphen there instead of "-".
+_LINE_BREAK_HYPHEN = re.compile(r"(\w)[-­‐‑][ \t]*\r?\n\s*(\w)")
+
+
+def normalize_source_text(text):
+    """Normalize PDF page text and snippets the same way so they can be compared.
+
+    Unicode NFKC (ligatures such as "fi" become plain letters), straight quotes
+    and hyphens, words rejoined across hyphenated line breaks, whitespace
+    collapsed, and case ignored.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    text = _LINE_BREAK_HYPHEN.sub(r"\1\2", text)  # before soft hyphens are removed
+    text = text.translate(_PUNCTUATION)
+    return " ".join(text.split()).casefold()
+
+
+def find_snippet_page(snippet, normalized_pages, preferred_page=None):
+    """Return the page whose text contains the snippet, or None.
+
+    normalized_pages maps page numbers to normalize_source_text() output. The
+    preferred page (the model's sourcePage) is checked first, then every other
+    page in order. A match that only differs by hyphens also counts, for
+    compound words broken across lines ("self-\\nassessment").
+    """
+    needle = normalize_source_text(snippet)
+    if not needle:
+        return None
+    loose_needle = needle.replace("-", "")
+    pages = sorted(normalized_pages)
+    if preferred_page in normalized_pages:
+        pages.remove(preferred_page)
+        pages.insert(0, preferred_page)
+    for page in pages:
+        text = normalized_pages[page]
+        if needle in text or (loose_needle and loose_needle in text.replace("-", "")):
+            return page
+    return None
+
+
+def _check_question(question, normalized_pages, seen_questions):
+    """Raise QuizValidationError if one generated question can't be used.
+
+    On success the question's sourcePage is set to the page where its snippet
+    was found (which may correct the model's page number).
+    """
+    if type(question) is not dict or set(question) != QUESTION_FIELDS:
+        raise QuizValidationError("missing or unexpected fields")
+
+    # bool is a subclass of int, so check the exact type.
+    if type(question["id"]) is not int:
+        raise QuizValidationError("id must be an integer")
+
+    for field in ("question", "explanation", "sourceSnippet", "topic"):
+        value = question[field]
+        if not isinstance(value, str) or not value.strip():
+            raise QuizValidationError(f"'{field}' must be nonempty text")
+
+    options = question["options"]
+    if type(options) is not list or len(options) != 4:
+        raise QuizValidationError("must have four options")
+    if any(not isinstance(option, str) or not option.strip() for option in options):
+        raise QuizValidationError("options must be nonempty text")
+    if len({" ".join(option.split()).casefold() for option in options}) != 4:
+        raise QuizValidationError("options must be distinct")
+
+    correct_index = question["correctIndex"]
+    if type(correct_index) is not int or not 0 <= correct_index < 4:
+        raise QuizValidationError("correctIndex must be an integer from 0 to 3")
+
+    if question["difficulty"] not in DIFFICULTIES:
+        raise QuizValidationError("difficulty must be easy, medium, or hard")
+
+    source_page = question["sourcePage"]
+    preferred_page = source_page if type(source_page) is int else None
+    found_page = find_snippet_page(question["sourceSnippet"], normalized_pages, preferred_page)
+    if found_page is None:
+        raise QuizValidationError("sourceSnippet was not found in the lecture")
+
+    normalized_question = " ".join(question["question"].split()).casefold()
+    if normalized_question in seen_questions:
+        raise QuizValidationError("duplicate question")
+
+    seen_questions.add(normalized_question)
+    question["sourcePage"] = found_page
+
+
+def validate_quiz(data, *, question_count, source_pages, min_questions=None):
+    """Validate parsed model output before the backend uses it.
+
+    Questions that fail a check are dropped (and logged) instead of failing the
+    whole quiz. Kept questions are renumbered 1, 2, 3... The quiz is rejected only
+    if fewer than min_questions remain (default: all question_count of them).
+    """
     if type(data) is not dict or set(data) != {"questions"}:
         raise QuizValidationError(
             "Quiz must contain exactly one 'questions' field."
         )
 
     questions = data["questions"]
+    if type(questions) is not list:
+        raise QuizValidationError("Quiz questions must be a list.")
 
-    if type(questions) is not list or len(questions) != question_count:
+    needed = question_count if min_questions is None else min_questions
+    normalized_pages = {
+        number: normalize_source_text(text) for number, text in source_pages.items()
+    }
+
+    kept = []
+    seen_questions = set()
+    for position, question in enumerate(questions, start=1):
+        if len(kept) == question_count:
+            break
+        try:
+            _check_question(question, normalized_pages, seen_questions)
+        except QuizValidationError as problem:
+            logger.warning("Dropped generated question %s: %s", position, problem)
+            continue
+        kept.append(question)
+
+    if len(kept) < needed:
         raise QuizValidationError(
-            f"Quiz must contain exactly {question_count} questions."
+            f"Only {len(kept)} of {question_count} generated questions passed validation."
         )
 
-    seen_questions = set()
+    for new_id, question in enumerate(kept, start=1):
+        question["id"] = new_id
 
-    for expected_id, question in enumerate(questions, start=1):
-        if type(question) is not dict or set(question) != QUESTION_FIELDS:
-            raise QuizValidationError(
-                f"Question {expected_id} has missing or unexpected fields."
-            )
-
-        if type(question["id"]) is not int or question["id"] != expected_id:
-            raise QuizValidationError(
-                "Question IDs must be consecutive integers starting at 1."
-            )
-
-        for field in ("question", "explanation", "sourceSnippet", "topic"):
-            value = question[field]
-
-            if not isinstance(value, str) or not value.strip():
-                raise QuizValidationError(
-                    f"Question {expected_id}: '{field}' must be nonempty text."
-                )
-
-        normalized_question = " ".join(question["question"].split()).casefold()
-
-        if normalized_question in seen_questions:
-            raise QuizValidationError("Quiz contains duplicate questions.")
-
-        seen_questions.add(normalized_question)
-
-        options = question["options"]
-
-        if type(options) is not list or len(options) != 4:
-            raise QuizValidationError(
-                f"Question {expected_id} must have four options."
-            )
-
-        if any(
-            not isinstance(option, str) or not option.strip()
-            for option in options
-        ):
-            raise QuizValidationError("Options must be nonempty text.")
-
-        normalized_options = {
-            " ".join(option.split()).casefold()
-            for option in options
-        }
-
-        if len(normalized_options) != 4:
-            raise QuizValidationError("Options must be distinct.")
-
-        correct_index = question["correctIndex"]
-
-        # bool is a subclass of int, so check the exact type.
-        if type(correct_index) is not int or not 0 <= correct_index < 4:
-            raise QuizValidationError(
-                "correctIndex must be an integer from 0 to 3."
-            )
-
-        if question["difficulty"] not in DIFFICULTIES:
-            raise QuizValidationError("difficulty must be easy, medium, or hard.")
-
-        source_page = question["sourcePage"]
-
-        if type(source_page) is not int or source_page not in source_pages:
-            raise QuizValidationError(
-                "sourcePage must reference a page in the supplied lecture."
-            )
-
-        snippet = " ".join(question["sourceSnippet"].split())
-        page_text = " ".join(source_pages[source_page].split())
-        if snippet not in page_text:
-            raise QuizValidationError(
-                f"Question {expected_id}: sourceSnippet must appear on sourcePage."
-            )
-
-    return data
+    return {"questions": kept}
 
 def build_quiz_schema(question_count, source_pages):
     """Describe the JSON structure OpenAI must return."""
@@ -211,7 +270,7 @@ def shuffle_quiz_options(quiz):
         )
 
     return quiz
-def validate_generation_result(data, *, question_count, source_pages):
+def validate_generation_result(data, *, question_count, source_pages, min_questions=None):
     """Interpret the generation outcome and validate successful quizzes."""
     expected_fields = {"status", "reason", "questions"}
 
@@ -248,6 +307,7 @@ def validate_generation_result(data, *, question_count, source_pages):
         {"questions": data["questions"]},
         question_count=question_count,
         source_pages=source_pages,
+        min_questions=min_questions,
     )
 
 def generate_quiz(lecture_text, question_count=5):
@@ -326,6 +386,51 @@ def generate_quiz(lecture_text, question_count=5):
         
     )
 
+    # Questions whose snippet can't be found are dropped. If too few are left,
+    # ask once more and keep the better attempt.
+    enough = max(1, math.ceil(question_count * MIN_GOOD_SHARE))
+    best = None
+    for attempt in (1, 2):
+        try:
+            data = _request_quiz(
+                api_key=api_key,
+                model=model,
+                instructions=instructions,
+                lecture_text=lecture_text,
+                question_count=question_count,
+                source_pages=source_pages,
+            )
+            quiz = validate_generation_result(
+                data,
+                question_count=question_count,
+                source_pages=source_pages,
+                min_questions=0,
+            )
+        except QuizValidationError as problem:
+            logger.warning("Quiz generation attempt %s was unusable: %s", attempt, problem)
+            continue
+
+        if best is None or len(quiz["questions"]) > len(best["questions"]):
+            best = quiz
+        if len(best["questions"]) >= enough:
+            break
+        logger.warning(
+            "Quiz generation attempt %s kept %s of %s questions; retrying.",
+            attempt, len(quiz["questions"]), question_count,
+        )
+
+    if best is None or len(best["questions"]) < enough:
+        kept = 0 if best is None else len(best["questions"])
+        raise QuizValidationError(
+            f"Only {kept} of {question_count} generated questions passed validation "
+            "after a retry."
+        )
+
+    return shuffle_quiz_options(best)
+
+
+def _request_quiz(*, api_key, model, instructions, lecture_text, question_count, source_pages):
+    """One OpenAI request; returns the parsed JSON (not yet validated)."""
     try:
         with OpenAI(
             api_key=api_key,
@@ -372,16 +477,8 @@ def generate_quiz(lecture_text, question_count=5):
         raise LLMError("OpenAI did not return a complete quiz response.")
 
     try:
-        quiz = json.loads(response.output_text)
+        return json.loads(response.output_text)
     except json.JSONDecodeError:
         raise QuizValidationError(
             "OpenAI returned invalid quiz JSON."
         ) from None
-
-    validated_quiz = validate_generation_result(
-        quiz,
-        question_count=question_count,
-        source_pages=source_pages,
-    )
-
-    return shuffle_quiz_options(validated_quiz)
