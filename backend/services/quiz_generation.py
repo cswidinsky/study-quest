@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import math
@@ -57,6 +58,16 @@ _PUNCTUATION = str.maketrans({
 # A word split across a line break with a hyphen: "concen-\ntration". PDF text often uses a
 # soft hyphen (U+00AD) or a Unicode hyphen there instead of "-".
 _LINE_BREAK_HYPHEN = re.compile(r"(\w)[-­‐‑][ \t]*\r?\n\s*(\w)")
+# Slide bullets: PowerPoint/Word export them as private-use glyphs (U+F09E…) or symbols such as
+# • ○ ▪ ► ✓, often glued to the next word ("Ignore"). They become spaces.
+_BULLETS = re.compile("[-•‣⁃⁌⁍∙■-◿☀-⛿✀-➿]")
+_WORDS = re.compile(r"[^\W_]+")
+
+# A quote that isn't found exactly is still accepted when it is long enough and at least this
+# share of a stretch of the page matches it word for word (spelling variants such as
+# "behavior"/"behaviour", or one dropped word). Made-up text scores far lower.
+FUZZY_MIN_WORDS = 5
+FUZZY_MIN_RATIO = 0.85
 
 
 def normalize_source_text(text):
@@ -68,8 +79,32 @@ def normalize_source_text(text):
     """
     text = unicodedata.normalize("NFKC", text)
     text = _LINE_BREAK_HYPHEN.sub(r"\1\2", text)  # before soft hyphens are removed
-    text = text.translate(_PUNCTUATION)
+    text = _BULLETS.sub(" ", text.translate(_PUNCTUATION))
     return " ".join(text.split()).casefold()
+
+
+def _fuzzy_score(needle_words, page_words):
+    """Best word-level similarity (0-1) between the quote and any stretch of the page."""
+    size = len(needle_words)
+    if size < FUZZY_MIN_WORDS or len(page_words) < FUZZY_MIN_WORDS:
+        return 0.0
+    first = set(needle_words[:3])
+    best = 0.0
+    matcher = difflib.SequenceMatcher(autojunk=False)
+    matcher.set_seq2(needle_words)
+    for start in range(len(page_words)):
+        # Only try windows that begin near one of the quote's opening words.
+        if page_words[start] not in first and start % 4:
+            continue
+        for length in (size - 1, size, size + 1, size + 2):
+            window = page_words[start : start + length]
+            if len(window) < FUZZY_MIN_WORDS:
+                continue
+            matcher.set_seq1(window)
+            if matcher.real_quick_ratio() <= best or matcher.quick_ratio() <= best:
+                continue
+            best = max(best, matcher.ratio())
+    return best
 
 
 def find_snippet_page(snippet, normalized_pages, preferred_page=None):
@@ -92,7 +127,17 @@ def find_snippet_page(snippet, normalized_pages, preferred_page=None):
         text = normalized_pages[page]
         if needle in text or (loose_needle and loose_needle in text.replace("-", "")):
             return page
-    return None
+
+    # No exact match: accept a near-verbatim quote on the page that matches it best.
+    needle_words = _WORDS.findall(needle)
+    scores = {page: _fuzzy_score(needle_words, _WORDS.findall(normalized_pages[page])) for page in pages}
+    best_page = max(scores, key=scores.get, default=None)
+    if best_page is None or scores[best_page] < FUZZY_MIN_RATIO:
+        return None
+    # Prefer the model's own page when it is (nearly) as good a match.
+    if preferred_page in scores and scores[preferred_page] >= scores[best_page] - 0.02:
+        return preferred_page
+    return best_page
 
 
 def _check_question(question, normalized_pages, seen_questions):

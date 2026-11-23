@@ -206,6 +206,40 @@ class TestSnippetMatching(unittest.TestCase):
             page_text="Osmosis – the move­ment of water —\n needs no   ATP.",
         )
 
+    def test_slide_bullets_glued_to_words(self):
+        # Handout PDFs export bullets as private-use glyphs or symbols stuck to the next word.
+        self.assert_accepted(
+            snippet="Must study observable behaviour. Ignore unobservable phenomena",
+            page_text="Must study observable \nbehaviour\nIgnore unobservable \nphenomena",
+        )
+        self.assert_accepted(
+            snippet="They aren't necessary for an understanding of human nature",
+            page_text="○They aren’t necessary for an \nunderstanding of human \nnature",
+        )
+
+    def test_near_verbatim_quote_is_accepted(self):
+        # US spelling for a UK-spelled slide, and a dash turned into a colon.
+        self.assert_accepted(
+            snippet="Relatively permanent change in behavior that occurs through experience",
+            page_text="Relatively permanent change in behaviour that occurs through \nexperience",
+        )
+        self.assert_accepted(
+            snippet="Associative learning: where we make a connection or association between two events",
+            page_text="Associative learning – Where we make a connection or \nassociation between two events",
+        )
+
+    def test_invented_or_short_inexact_quotes_are_rejected(self):
+        page = "Learning occurs when you recognize that one event predicts another"
+        for snippet in (
+            "Pavlov discovered that dogs can be trained to play the piano",
+            "Reinforcement always weakens the behaviour that comes before it",
+            "Learning occurs predictably",  # too short to match loosely
+        ):
+            with self.subTest(snippet=snippet):
+                quiz, pages = quiz_with_snippet(snippet, page)
+                with self.assertRaises(QuizValidationError):
+                    validate_quiz(quiz, question_count=1, source_pages=pages)
+
     def test_rejects_snippet_found_nowhere(self):
         quiz, pages = quiz_with_snippet(
             "Glucose enters through aquaporins.",
