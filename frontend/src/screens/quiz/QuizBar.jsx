@@ -5,7 +5,7 @@ import CountUp from '../../components/CountUp.jsx'
 import { BoltIcon, CloseIcon, SoundOffIcon, SoundOnIcon } from '../../components/icons.jsx'
 
 // The quiz's own top bar: leave, progress, combo, XP earned this session, sound.
-export default function QuizBar({ done, total, combo, sessionXp, sound, onToggleSound, onClose, roundLabel }) {
+export default function QuizBar({ done, position, total, combo, sessionXp, sound, onToggleSound, onClose, roundLabel }) {
   const progress = total ? done / total : 0
   return (
     <div className="sticky top-0 z-30 border-b border-border bg-background/95">
@@ -24,7 +24,7 @@ export default function QuizBar({ done, total, combo, sessionXp, sound, onToggle
           <div className="mb-1.5 flex items-baseline justify-between text-xs text-muted">
             <span>{roundLabel}</span>
             <span className="num">
-              <span className="text-text">{Math.min(done + 1, total)}</span>/{total}
+              <span className="text-text">{Math.min(position ?? done + 1, total)}</span>/{total}
             </span>
           </div>
           <div

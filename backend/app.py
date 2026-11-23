@@ -29,7 +29,7 @@ def health():
 def extract():
     if "file" not in request.files:
         return jsonify({
-            "error": "Upload a PDF using the 'file' field."
+            "error": "Choose a PDF to upload."
         }), 400
 
     uploaded_file = request.files["file"]
@@ -64,7 +64,7 @@ def extract():
 @app.errorhandler(413)
 def upload_too_large(_error):
     return jsonify({
-        "error": "Upload exceeds the 10 MiB request limit. Choose a smaller PDF."
+        "error": "That PDF is too big to upload. Choose one under 4 MB."
     }), 413
 
 
@@ -95,7 +95,7 @@ def require_quiz_user(route):
 @require_quiz_user
 def create_quiz(store, owner_id):
     if "file" not in request.files:
-        return jsonify({"error": "Upload a PDF using the 'file' field."}), 400
+        return jsonify({"error": "Choose a PDF to upload."}), 400
 
     uploaded_file = request.files["file"]
     if not uploaded_file.filename:
@@ -157,7 +157,7 @@ def submit_quiz(store, owner_id, quiz_id):
 
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or not isinstance(payload.get("answers"), dict):
-        return jsonify({"error": "Send your selections in an answers object."}), 400
+        return jsonify({"error": "Something went wrong sending your answers. Try submitting again."}), 400
 
     submitted = payload["answers"]
     question_ids = {str(question["id"]) for question in questions}
@@ -169,7 +169,7 @@ def submit_quiz(store, owner_id, quiz_id):
         question_id = question["id"]
         selected = submitted[str(question_id)]
         if type(selected) is not int or not 0 <= selected < len(question["options"]):
-            return jsonify({"error": f"Invalid option for question {question_id}."}), 400
+            return jsonify({"error": "One of your answers couldn't be read. Check your answers and submit again."}), 400
 
         results.append({
             "id": question_id,

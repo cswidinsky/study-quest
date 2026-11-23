@@ -27,6 +27,17 @@ export function scrollToElement(el, offset = -24) {
   else el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' })
 }
 
+// Scroll just enough to bring an element fully into view, and only if it's below the fold
+// (e.g. the quiz's Continue button after the feedback panel opens).
+export function revealElement(el, margin = 24) {
+  if (!el) return
+  const overflow = el.getBoundingClientRect().bottom + margin - window.innerHeight
+  if (overflow <= 0) return
+  const top = window.scrollY + overflow
+  if (lenis) lenis.scrollTo(top, { duration: 0.6 })
+  else window.scrollTo({ top, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+}
+
 // Freeze page scroll while a sheet or dialog is open.
 export function lockScroll(locked) {
   if (lenis && locked) lenis.stop()

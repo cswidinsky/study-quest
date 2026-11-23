@@ -7,7 +7,7 @@ def extract_pdf_text(pdf_path):
 
     with pymupdf.open(pdf_path) as document:
         if document.page_count == 0:
-            raise ValueError("The PDF contains no pages.")
+            raise ValueError("That PDF has no pages. Try a different file.")
 
         for page_number, page in enumerate(document, start=1):
             page_text = page.get_text()
@@ -19,8 +19,8 @@ def extract_pdf_text(pdf_path):
 
     if not has_text:
         raise ValueError(
-            "The PDF contains no extractable text. "
-            "It may be blank or contain scanned images requiring OCR."
+            "We couldn't find any text in that PDF. It might be a scan or photos of slides. "
+            "Try a PDF exported from your slides or notes."
         )
 
     return "\n\n".join(pages)

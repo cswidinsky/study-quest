@@ -19,7 +19,11 @@ export class FlaskError extends Error {
 // status for "this server doesn't have that route yet" (a non-JSON 404/405)
 export const ROUTE_MISSING = 404.1
 
-const OFFLINE = 'Couldn’t reach the StudyQuest server. Check that Flask is running, or try Demo mode in Settings.'
+// Messages a student may see. Technical details stay in the console for us.
+const OFFLINE = 'Couldn’t reach StudyQuest. Check your internet connection and try again, or try Demo mode in Settings.'
+const UNAVAILABLE = 'That isn’t available right now. Try again in a little while.'
+const SERVER_ERROR = 'Something went wrong on our side. Try again in a moment.'
+const TOO_BIG = 'That PDF is too big to upload. Choose one under 4 MB.'
 
 // The current session's token (supabase-js refreshes it first if it has expired).
 async function authHeader() {
@@ -51,10 +55,13 @@ async function request(path, { method = 'GET', body, json, signal, auth = true }
   const data = isJson ? await response.json().catch(() => null) : null
 
   if (!response.ok) {
+    if (!isJson) console.warn(`StudyQuest API ${method} ${path} answered ${response.status} without JSON`)
     // A non-JSON 404/405 means the route itself doesn't exist (an older server).
     if (!isJson && (response.status === 404 || response.status === 405)) {
-      throw new FlaskError('This server doesn’t support that yet.', ROUTE_MISSING)
+      throw new FlaskError(UNAVAILABLE, ROUTE_MISSING)
     }
+    // Vercel (4.5 MB) or Flask rejected the upload's size.
+    if (response.status === 413) throw new FlaskError(TOO_BIG, 413)
     // Vite's proxy answers 500/502/504 with no JSON when Flask isn't running.
     if (!isJson && response.status >= 500) throw new FlaskError(OFFLINE, response.status)
     if (response.status === 401) {
@@ -64,7 +71,7 @@ async function request(path, { method = 'GET', body, json, signal, auth = true }
     if (response.status === 404 && /quiz not found/i.test(data?.error ?? '')) {
       throw new FlaskError('This quiz isn’t available on the server any more. Upload the PDF again to make a new one.', 404)
     }
-    throw new FlaskError(data?.error ?? `The server returned an error (${response.status}).`, response.status)
+    throw new FlaskError(data?.error ?? SERVER_ERROR, response.status)
   }
   return data
 }

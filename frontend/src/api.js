@@ -142,7 +142,7 @@ export async function getSavedResult(quizId) {
     result = await flask.getResult(quizId)
   } catch (error) {
     if (error.status === flask.ROUTE_MISSING) {
-      throw new Error('This server can’t load saved results yet. Your score showed when you submitted; saved results arrive with the next backend update.')
+      throw new Error('Saved results aren’t available right now. Try again in a little while.')
     }
     if (error.status === 404) throw new Error('There’s no saved result for this quiz. It may belong to another account, or it hasn’t been submitted yet.')
     throw error

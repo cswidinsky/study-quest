@@ -354,7 +354,9 @@ function QuizRun({ initialSession }) {
     <div className="min-h-dvh">
       {(phase === 'play' || phase === 'submit' || phase === 'rematch-break') && (
         <QuizBar
-          done={phase === 'submit' ? queue.length : index + (answered ? 1 : 0)}
+          // The bar fills as questions are answered; the label is the question on screen.
+          done={phase === 'play' ? index + (answered ? 1 : 0) : queue.length}
+          position={phase === 'play' ? index + 1 : queue.length}
           total={queue.length}
           combo={combo}
           sessionXp={log.reduce((s, l) => s + l.xp, 0)}

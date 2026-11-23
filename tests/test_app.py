@@ -26,7 +26,7 @@ class TestApp(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.get_json(),
-            {"error": "Upload a PDF using the 'file' field."},
+            {"error": "Choose a PDF to upload."},
         )
 
     def test_extract_valid_pdf(self):
@@ -89,8 +89,8 @@ class TestApp(unittest.TestCase):
             response.get_json(),
             {
                 "error": (
-                    "The PDF contains no extractable text. "
-                    "It may be blank or contain scanned images requiring OCR."
+                    "We couldn't find any text in that PDF. It might be a scan or photos of slides. "
+                    "Try a PDF exported from your slides or notes."
                 )
             },
         )

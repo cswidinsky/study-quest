@@ -43,7 +43,16 @@ export default function Stats() {
           </span>
         </Tile>
         <Tile rise={rise} label="Accuracy, 7 days">
-          <CountUp value={percent(correct, answered)} format={(n) => `${n}%`} className="num text-[30px] leading-none sm:text-[34px]" />
+          {answered > 0 ? (
+            <CountUp value={percent(correct, answered)} format={(n) => `${n}%`} className="num text-[30px] leading-none sm:text-[34px]" />
+          ) : (
+            <>
+              <span className="num text-[30px] leading-none text-muted sm:text-[34px]" aria-hidden="true">
+                –
+              </span>
+              <span className="ml-2 text-sm text-muted">No answers yet</span>
+            </>
+          )}
         </Tile>
         <Tile rise={rise} label="Cards mastered">
           <CountUp value={counts.mastered} className="num text-[30px] leading-none sm:text-[34px]" />
@@ -97,7 +106,10 @@ export default function Stats() {
               </Button>
             )}
           </div>
-          <ul className="mt-5 grid gap-x-8 gap-y-4 md:grid-cols-2">
+          {topics.length === 0 && (
+            <p className="mt-4 text-sm text-muted">Answer a few questions and your topics show up here, weakest first.</p>
+          )}
+          <ul className={`grid gap-x-8 gap-y-4 md:grid-cols-2 ${topics.length ? 'mt-5' : ''}`}>
             {topics.map((t, i) => (
               <li key={`${t.deck?.id}-${t.topic}`} style={deckStyle(t.deck)}>
                 <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
@@ -134,6 +146,7 @@ function ActivityChart({ activity }) {
   const reduce = useReducedMotion()
   const max = Math.max(10, ...activity.map((d) => d.answered))
   const top = Math.ceil(max / 10) * 10
+  const empty = activity.every((d) => !d.answered)
   return (
     <div className="mt-6 flex gap-3">
       <div className="num flex h-44 flex-col justify-between text-right text-[11px] text-muted" aria-hidden="true">
@@ -141,7 +154,11 @@ function ActivityChart({ activity }) {
         <span>{top / 2}</span>
         <span>0</span>
       </div>
-      <ol className="flex h-44 flex-1 items-end gap-2 border-b border-border sm:gap-4" aria-label="Answers per day">
+      <div className="relative min-w-0 flex-1">
+      {empty && (
+        <p className="absolute inset-x-0 top-1/3 px-4 text-center text-sm text-muted">Your answers per day will show up here.</p>
+      )}
+      <ol className="flex h-44 items-end gap-2 border-b border-border sm:gap-4" aria-label="Answers per day">
         {activity.map((d, i) => {
           const wrong = d.answered - d.correct
           return (
@@ -161,6 +178,18 @@ function ActivityChart({ activity }) {
           )
         })}
       </ol>
+      {/* Day labels, lined up with the columns. The last one is today. */}
+      <ol className="mt-2 flex gap-2 sm:gap-4" aria-hidden="true">
+        {activity.map((d, i) => (
+          <li
+            key={d.date}
+            className={`min-w-0 flex-1 text-center text-[11px] ${i === activity.length - 1 ? 'font-medium text-text' : 'text-muted'}`}
+          >
+            {weekdayShort(d.date)}
+          </li>
+        ))}
+      </ol>
+      </div>
     </div>
   )
 }

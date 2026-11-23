@@ -28,7 +28,7 @@ export function authMessage(error, context = '') {
     case 'email_address_invalid':
       return 'That email address doesn’t look right. Check it and try again.'
     case 'email_address_not_authorized':
-      return 'This email can’t receive messages yet: Supabase’s built-in email only sends to your team. Set up custom SMTP in Supabase.'
+      return 'We couldn’t send an email to that address. Check it, or try a different email.'
     case 'signup_disabled':
       return 'New sign-ups are turned off right now.'
     case 'otp_expired':
