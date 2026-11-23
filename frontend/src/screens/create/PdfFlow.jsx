@@ -9,9 +9,10 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 
 // PDF → quiz, in three phases: pick a file, check the details, watch it generate.
 
-// Matches the backend's 10 MiB request limit (MAX_CONTENT_LENGTH in backend/app.py).
-// That limit counts the whole upload request, so leave a little room for the form data around the file.
-const MAX_MB = 10
+// On Vercel, a function accepts request bodies up to 4.5 MB (Flask itself allows 10 MiB:
+// MAX_CONTENT_LENGTH in backend/app.py). The limit counts the whole upload request, so leave a
+// little room for the form data around the file.
+const MAX_MB = 4
 const MAX_BYTES = MAX_MB * 1024 * 1024 - 64 * 1024
 // Demo data can write 5 or 10; the Flask server always writes 5 for now.
 const questionCounts = () => (isLive() ? [5] : [5, 10])
