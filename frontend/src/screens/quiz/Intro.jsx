@@ -60,7 +60,7 @@ export default function Intro({ session, decks, mode, onMode, onStart, weakCount
         <div className="panel inline-flex rounded-full p-1" role="radiogroup">
           {[
             { id: 'mc', label: 'Multiple choice', Icon: CardsIcon, disabled: !hasChoices },
-            { id: 'flash', label: 'Flashcards', Icon: FlipIcon },
+            { id: 'flash', label: 'Flashcards', Icon: FlipIcon, disabled: session.gradedByFlask },
           ].map(({ id, label, Icon, disabled }) => (
             <button
               key={id}
@@ -82,7 +82,11 @@ export default function Intro({ session, decks, mode, onMode, onStart, weakCount
           ))}
         </div>
         <p className="mt-2 text-xs text-muted">
-          {mode === 'flash' ? 'You grade yourself, so flashcards earn 75% of the XP.' : 'Four options, one right. Keys 1–4 work too.'}
+          {session.gradedByFlask
+            ? 'Pick an answer for every question, then submit once: the StudyQuest server marks the whole quiz. Flashcards unlock after that.'
+            : mode === 'flash'
+              ? 'You grade yourself, so flashcards earn 75% of the XP.'
+              : 'Four options, one right. Keys 1–4 work too.'}
         </p>
       </motion.fieldset>
 
@@ -114,13 +118,14 @@ export default function Intro({ session, decks, mode, onMode, onStart, weakCount
 function AllCaughtUp({ decks, weakCount }) {
   const rise = useRise()
   const learnable = decks.filter((d) => d.newCount > 0)
+  const empty = decks.length === 0 // a brand-new account
   return (
     <motion.div className="mx-auto max-w-2xl px-4 pt-10 pb-24 sm:px-6 sm:pt-20" initial="hidden" animate="show" variants={stagger(0.08, 0.05)}>
       <motion.h1 variants={rise} className="text-[34px] leading-tight font-semibold tracking-tight sm:text-[48px]">
-        All caught up
+        {empty ? 'Nothing to review yet' : 'All caught up'}
       </motion.h1>
       <motion.p variants={rise} className="mt-2 text-lg text-muted">
-        Nothing is due right now. Here’s what you can do instead.
+        {empty ? 'Reviews start once you have a deck. Upload a lecture PDF and StudyQuest writes the first quiz.' : 'Nothing is due right now. Here’s what you can do instead.'}
       </motion.p>
       <motion.div variants={rise} className="mt-8 grid gap-3">
         {weakCount > 0 && (
@@ -148,9 +153,16 @@ function AllCaughtUp({ decks, weakCount }) {
             <ArrowRightIcon className="size-4 text-muted" />
           </a>
         ))}
-        <Button as="a" href="#/" variant="secondary" size="lg" className="justify-self-start">
-          Back to dashboard
-        </Button>
+        {empty ? (
+          <Button as="a" href="#/new" size="lg" className="justify-self-start">
+            Upload your first PDF
+            <ArrowRightIcon />
+          </Button>
+        ) : (
+          <Button as="a" href="#/" variant="secondary" size="lg" className="justify-self-start">
+            Back to dashboard
+          </Button>
+        )}
       </motion.div>
     </motion.div>
   )

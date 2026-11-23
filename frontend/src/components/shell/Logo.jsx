@@ -1,19 +1,17 @@
-// Product mark: a quest flag on the accent colour, plus the name.
-export default function Logo({ withName = true }) {
+// The StudyQuest logo (public/brand). Dark text on the light theme, light text on the dark theme:
+// both images are in the page and CSS shows the right one, so there's no flash when the theme flips.
+// href = null renders it without a link (the sign-in screens).
+export default function Logo({ href = '#/', className = 'h-7' }) {
+  const images = (
+    <>
+      <img src="/brand/studyquest-logo-light.svg" alt="StudyQuest" width="126" height="28" className={`${className} w-auto dark:hidden`} />
+      <img src="/brand/studyquest-logo-dark.svg" alt="StudyQuest" width="126" height="28" className={`${className} hidden w-auto dark:block`} />
+    </>
+  )
+  if (!href) return <span className="flex shrink-0 items-center">{images}</span>
   return (
-    <a href="#/" className="flex items-center gap-2.5 rounded-lg font-semibold tracking-tight">
-      <svg viewBox="0 0 24 24" className="size-7" aria-hidden="true">
-        <rect width="24" height="24" rx="7.5" className="fill-accent" />
-        <path
-          d="M8.5 18V6l8 3.25-8 3.25"
-          fill="none"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="stroke-on-accent"
-        />
-      </svg>
-      {withName ? <span>StudyQuest</span> : <span className="sr-only">StudyQuest home</span>}
+    <a href={href} className="flex shrink-0 items-center rounded-lg" aria-label="StudyQuest home">
+      {images}
     </a>
   )
 }

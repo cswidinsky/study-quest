@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useGame } from '../state/game.js'
-import { rematchItems, revealAnswer, startSession, submitAnswer } from '../api.js'
+import { finishSession, rematchItems, revealAnswer, startSession, submitAnswer } from '../api.js'
 import { comboMultiplier } from '../lib/levels.js'
 import { isWeak } from '../lib/selectors.js'
-import { EASE_CINEMA } from '../lib/motion.js'
+import { EASE_CINEMA, stagger, useRise } from '../lib/motion.js'
 import { play } from '../lib/sound.js'
 import { buzz } from '../lib/haptics.js'
 import { navigate } from '../lib/router.js'
@@ -22,6 +22,12 @@ import Results from './quiz/Results.jsx'
 // the session and shuffles the options; each pick is sent with api.submitAnswer,
 // and the response says right/wrong, which option was correct, the explanation,
 // the XP and the card's new memory state. The level-up waits for the results screen.
+//
+// A live PDF quiz (Flask) is marked all at once (the MVP flow, issue #21): each pick is
+// only saved (and can be changed), then "Ready to submit?" sends every pick in ONE request.
+// If it fails, the picks stay and you can retry. The results show Flask's score and its
+// feedback for every question, and the address becomes #/results/<quizId> so a refresh
+// reopens the saved result (read-only: no second submit, no XP).
 
 const SWIPE = {
   enter: { opacity: 0, transform: 'translateX(56px)', filter: 'blur(6px)' },
@@ -65,12 +71,17 @@ function QuizRun({ initialSession }) {
   const reduce = useReducedMotion()
 
   const [session, setSession] = useState(initialSession)
-  const [phase, setPhase] = useState('intro') // intro | play | rematch-break | results
+  const [phase, setPhase] = useState('intro') // intro | play | submit | rematch-break | results
   const [mode, setMode] = useState(() => (initialSession.items.some((i) => i.options) ? 'mc' : 'flash'))
   const [queue, setQueue] = useState(initialSession.items)
   const [index, setIndex] = useState(0)
   const [round, setRound] = useState('main') // main | rematch
   const [pending, setPending] = useState(null) // { chosen } while the server grades
+  const [picks, setPicks] = useState({}) // live PDF quiz: cardId → chosen option, until submitted
+  const [submitting, setSubmitting] = useState(false)
+  const [gradingError, setGradingError] = useState(null)
+  const [returnToSubmit, setReturnToSubmit] = useState(false) // editing one pick from "Ready to submit?"
+  const [graded, setGraded] = useState(null) // { score, total, questions } from Flask, for the results
   const [answered, setAnswered] = useState(null) // { chosen, correct, result }
   const [log, setLog] = useState([])
   const [missed, setMissed] = useState([])
@@ -104,7 +115,8 @@ function QuizRun({ initialSession }) {
   // Multiple choice: { chosen: optionIndex }. Flashcards: { selfGrade: 'got' | 'missed' }.
   const answer = useCallback(
     async ({ chosen = null, selfGrade = null, origin = null }) => {
-      if (answered || pending || !item) return
+      if ((answered && !answered.result.deferred) || pending || !item) return
+      if (answered?.result.deferred && answered.chosen === chosen) return // same pick again
       setPending({ chosen })
       let result
       try {
@@ -120,6 +132,14 @@ function QuizRun({ initialSession }) {
         return
       } finally {
         setPending(null)
+      }
+
+      // Live PDF quiz: the pick is saved (picking again replaces it) and marked on submit.
+      if (result.deferred) {
+        setAnswered({ chosen, correct: null, result })
+        setPicks((p) => ({ ...p, [item.card.id]: chosen }))
+        play('tap')
+        return
       }
 
       applyAnswer(result)
@@ -154,24 +174,106 @@ function QuizRun({ initialSession }) {
 
   const reveal = useCallback(() => revealAnswer(session.sessionId, item.card.id), [session.sessionId, item])
 
+  const pickCount = Object.keys(picks).length
+
+  // "Submit quiz": every saved pick goes to Flask in ONE request. On success, the verdicts
+  // are applied as if each was graded on the spot (XP, schedule); on failure nothing changes,
+  // the picks stay, and the button can be pressed again.
+  const submitQuiz = useCallback(async () => {
+    if (submitting) return
+    setSubmitting(true)
+    setGradingError(null)
+    try {
+      const { graded: results, quizzes } = await finishSession(session.sessionId)
+      const byId = new Map(queue.map((i) => [i.card.id, i]))
+      const missedNow = []
+      let best = 0
+      for (const r of results) {
+        applyAnswer(r)
+        best = Math.max(best, r.combo)
+        const it = byId.get(r.cardId)
+        if (!r.correct && it) missedNow.push(it)
+      }
+      setLog((l) => [
+        ...l,
+        ...results.map((r) => ({
+          card: byId.get(r.cardId)?.card ?? r.card,
+          correct: r.correct,
+          round: 'main',
+          xp: r.xp,
+          reason: r.reason,
+          masteryBefore: r.masteryBefore,
+          masteryAfter: r.masteryAfter,
+        })),
+      ])
+      // Flask's own feedback for every question, kept for the results screen.
+      const quiz = quizzes[0]
+      setGraded({
+        score: quiz?.score ?? results.filter((r) => r.correct).length,
+        total: quiz?.total ?? results.length,
+        questions: results.map((r) => {
+          const it = byId.get(r.cardId)
+          return {
+            id: r.cardId,
+            text: it?.card.question ?? r.card.question,
+            choices: it?.options ?? [],
+            chosen: r.chosenIndex,
+            correct: r.correct,
+            correctIndex: r.correctIndex,
+            explanation: r.explanation,
+            sourcePage: r.sourcePage,
+            sourceSnippet: r.sourceSnippet,
+          }
+        }),
+      })
+      // A refresh from here reopens the saved result instead of starting the quiz again.
+      if (quiz) window.history.replaceState(window.history.state, '', `#/results/${quiz.quizId}`)
+      setBestCombo((b) => Math.max(b, best))
+      setMissed(missedNow)
+      setPicks({})
+      play('results')
+      setPhase(missedNow.length ? 'rematch-break' : 'results')
+    } catch (error) {
+      setGradingError(error.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [submitting, session.sessionId, queue, applyAnswer])
+
   const next = useCallback(() => {
     setAnswered(null)
+    if (returnToSubmit) {
+      setReturnToSubmit(false)
+      setPhase('submit')
+      return
+    }
     if (index + 1 < queue.length) {
       setIndex((i) => i + 1)
       return
     }
-    if (round === 'main' && missed.length) setPhase('rematch-break')
+    if (round === 'main' && pickCount > 0) setPhase('submit')
+    else if (round === 'main' && missed.length) setPhase('rematch-break')
     else setPhase('results')
-  }, [index, queue.length, round, missed.length])
+  }, [index, queue.length, round, missed.length, pickCount, returnToSubmit])
 
-  // Keyboard: 1–4 or A–D to answer; Enter to continue.
+  // From "Ready to submit?": go back to one question to change its pick.
+  function editPick(i) {
+    const chosen = picks[queue[i].card.id]
+    setIndex(i)
+    setAnswered(chosen != null ? { chosen, correct: null, result: { deferred: true } } : null)
+    setReturnToSubmit(true)
+    setGradingError(null)
+    setPhase('play')
+  }
+
+  // Keyboard: 1–4 or A–D to answer (or change a saved pick); Enter to continue.
   useEffect(() => {
     if (phase !== 'play') return
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (answered) {
         if (e.key === 'Enter' && document.activeElement?.tagName !== 'BUTTON') next()
-        return
+        if (!answered.result.deferred) return
       }
       if (flash) return
       const i = ['1', '2', '3', '4'].indexOf(e.key) >= 0 ? Number(e.key) - 1 : ['a', 'b', 'c', 'd'].indexOf(e.key.toLowerCase())
@@ -204,6 +306,7 @@ function QuizRun({ initialSession }) {
       const fresh = await startSession({ kind: 'rematch', cardIds: ids })
       setSession({ ...fresh, title: 'Rematch' })
       setLog([])
+      setGraded(null)
       setMissed([])
       setBestCombo(0)
       setQueue(fresh.items)
@@ -220,6 +323,12 @@ function QuizRun({ initialSession }) {
   }
 
   function endSession() {
+    if (pickCount > 0) {
+      // Flask grades a whole quiz at once, so a half-finished one can't be scored.
+      showToast({ kind: 'info', message: 'Quiz left before submitting. Answer every question and submit to get it marked.' })
+      navigate('/')
+      return
+    }
     if (log.length) setPhase('results')
     else navigate('/')
   }
@@ -242,9 +351,9 @@ function QuizRun({ initialSession }) {
 
   return (
     <div className="min-h-dvh">
-      {(phase === 'play' || phase === 'rematch-break') && (
+      {(phase === 'play' || phase === 'submit' || phase === 'rematch-break') && (
         <QuizBar
-          done={index + (answered ? 1 : 0)}
+          done={phase === 'submit' ? queue.length : index + (answered ? 1 : 0)}
           total={queue.length}
           combo={combo}
           sessionXp={log.reduce((s, l) => s + l.xp, 0)}
@@ -280,6 +389,7 @@ function QuizRun({ initialSession }) {
                 onAnswer={answer}
                 onReveal={reveal}
                 onNext={next}
+                nextLabel={answered?.result.deferred && (returnToSubmit || index + 1 === queue.length) ? 'Review answers' : 'Next'}
                 onReport={report}
                 reported={data.reported?.includes(item.card.id)}
                 practice={session.practice}
@@ -290,6 +400,10 @@ function QuizRun({ initialSession }) {
         </div>
       )}
 
+      {phase === 'submit' && (
+        <SubmitQuiz items={queue} picks={picks} submitting={submitting} error={gradingError} onSubmit={submitQuiz} onEdit={editPick} />
+      )}
+
       {phase === 'rematch-break' && (
         <RematchBreak count={missed.length} practice={session.practice} onStart={startRematch} onSkip={() => setPhase('results')} />
       )}
@@ -297,6 +411,8 @@ function QuizRun({ initialSession }) {
       {phase === 'results' && (
         <Results
           log={log}
+          graded={graded}
+          deck={data.decks.find((d) => d.id === session.deckId) ?? null}
           bestCombo={bestCombo}
           decks={data.decks}
           streak={data.user.streak}
@@ -307,6 +423,69 @@ function QuizRun({ initialSession }) {
 
       <Effects effects={effects} />
     </div>
+  )
+}
+
+// "Ready to submit?": every question with the pick it will be marked on. One button sends them
+// all; it's disabled until every question has a pick, and while the request is on its way.
+// If the request fails, the picks stay and the error from the server is shown above the button.
+function SubmitQuiz({ items, picks, submitting, error, onSubmit, onEdit }) {
+  const rise = useRise()
+  const chosen = items.filter((i) => picks[i.card.id] != null).length
+  const ready = chosen === items.length
+
+  return (
+    <motion.div className="mx-auto max-w-2xl px-4 pt-6 pb-24 sm:px-6 sm:pt-10" initial="hidden" animate="show" variants={stagger(0.06, 0.05)}>
+      <motion.h1 variants={rise} className="text-[32px] leading-tight font-semibold tracking-tight sm:text-[40px]">
+        Ready to submit?
+      </motion.h1>
+      <motion.p variants={rise} className="mt-2 text-muted">
+        The StudyQuest server marks all <span className="num">{items.length}</span> answers at once. You can still change any of
+        them.
+      </motion.p>
+
+      <motion.ol variants={rise} className="mt-7 space-y-2">
+        {items.map((it, i) => {
+          const pick = picks[it.card.id]
+          return (
+            <li key={it.card.id} className="panel flex items-center gap-3 rounded-2xl px-4 py-3">
+              <span className="num w-5 shrink-0 text-sm text-muted">{i + 1}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-muted">{it.card.question}</span>
+                <span className={`block truncate font-medium ${pick == null ? 'text-error' : ''}`}>
+                  {pick == null ? 'No answer yet' : it.options[pick]}
+                </span>
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => onEdit(i)} disabled={submitting}>
+                {pick == null ? 'Answer' : 'Change'}
+              </Button>
+            </li>
+          )
+        })}
+      </motion.ol>
+
+      <div aria-live="polite">
+        {error && (
+          <div role="alert" className="mt-6 rounded-2xl border border-error/40 bg-error/8 px-4 py-3 text-sm">
+            <p className="font-medium">Couldn’t submit your answers.</p>
+            <p className="mt-0.5">{error}</p>
+            <p className="mt-1 text-muted">Your answers are still here. Try again when you’re ready.</p>
+          </div>
+        )}
+      </div>
+
+      <motion.div variants={rise} className="mt-6 flex flex-wrap items-center gap-3">
+        <Button size="lg" className="h-12 px-7 text-base" onClick={onSubmit} disabled={!ready || submitting} aria-busy={submitting || undefined}>
+          {submitting && <span className="size-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" />}
+          {submitting ? 'Marking your answers…' : error ? 'Try again' : `Submit ${items.length} answers`}
+        </Button>
+        {!ready && (
+          <span className="text-sm text-muted">
+            Answer every question first (<span className="num">{chosen}</span> of <span className="num">{items.length}</span>).
+          </span>
+        )}
+      </motion.div>
+    </motion.div>
   )
 }
 

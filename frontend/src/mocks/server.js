@@ -1,11 +1,14 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  MOCK SERVER: a stand-in for the Flask backend, running in the browser.
+//  PROGRESS SERVER: the game rules, running in the browser.
 // ════════════════════════════════════════════════════════════════════════════
 // The team agreed Flask keeps the correct answers and calculates scores and XP.
-// This file plays that role until the real API exists, so the rest of the app
-// is written exactly as it will be against Flask:
-//   - It owns the "database" (saved in localStorage under DB_KEY), including the
-//     answer key: correctIndex, answer, explanation, sourceSnippet.
+// Flask has no users, decks or XP yet, so this file plays that role, and the rest
+// of the app is written exactly as it will be against a real API:
+//   - It works on one "world" at a time (open/close below): the signed-in user's
+//     real data (src/lib/cloud.js, saved in Supabase) or their demo world (mock
+//     data, saved in this browser under their user id). Each world's `save` decides
+//     where changes go; this file never knows.
+//   - The world holds the answer key: correctIndex, answer, explanation, sourceSnippet.
 //   - The browser only ever receives PUBLIC card data (publicCard below). It
 //     learns whether an answer was right only from submitAnswer's response.
 //   - It tracks each quiz session (option order, attempts, misses, comebacks,
@@ -18,9 +21,6 @@ import { daysSince, isDue, isNewCard, masteryOf, schedule } from '../lib/srs.js'
 import { buildSession, toItem } from '../lib/session.js'
 import { dayKey, streakNow } from '../lib/selectors.js'
 
-const DB_KEY = 'studyquest:mock-db:v1'
-const OLD_SAVE_KEY = 'studyquest:demo:v2' // the pre-server save: migrated once, then removed
-
 // An error the API would send back as JSON: { "error": message } with an HTTP status.
 export class ApiError extends Error {
   constructor(message, status = 400) {
@@ -30,52 +30,36 @@ export class ApiError extends Error {
   }
 }
 
-/* ——— The "database" ——— */
+/* ——— The open world ——— */
 
-let db = null
+// world = { db, save(db), log?(answer), close?() }
+//   db:   { user, activity, decks, cards, reported }
+//   save: called after every change (the cloud world batches these into Supabase writes)
+//   log:  one graded answer, for the answer log (reviews table)
+let world = null
 
-function readJson(key) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
+export function open(next) {
+  close()
+  world = next
 }
 
-function seed() {
-  const fresh = structuredClone(dashboardResponse)
-  const old = readJson(OLD_SAVE_KEY)
-  if (old?.cards && old?.user) {
-    // Keep progress from the old browser save, filling in fields added since.
-    const freshById = new Map(fresh.cards.map((c) => [c.id, c]))
-    try {
-      localStorage.removeItem(OLD_SAVE_KEY)
-    } catch {
-      // ignore
-    }
-    return {
-      user: { ...fresh.user, ...old.user },
-      activity: old.activity ?? fresh.activity,
-      decks: old.decks ?? fresh.decks,
-      cards: old.cards.map((c) => ({ ...c, sourcePage: c.sourcePage ?? freshById.get(c.id)?.sourcePage ?? null })),
-      reported: old.reported ?? [],
-    }
-  }
-  return { user: fresh.user, activity: fresh.activity, decks: fresh.decks, cards: fresh.cards, reported: [] }
+export function close() {
+  world?.close?.()
+  world = null
+  sessions.clear()
 }
 
 function database() {
-  if (!db) db = readJson(DB_KEY) ?? seed()
-  return db
+  if (!world) throw new ApiError('You’re signed out. Log in again to keep going.', 401)
+  return world.db
 }
 
-function persist() {
-  try {
-    localStorage.setItem(DB_KEY, JSON.stringify(db))
-  } catch {
-    // Storage full or blocked: the demo keeps working, it just won't persist.
-  }
+const persist = () => world?.save(world.db)
+
+// A fresh demo world: the mock decks, cards, XP and streak.
+export function demoSeed() {
+  const fresh = structuredClone(dashboardResponse)
+  return { user: fresh.user, activity: fresh.activity, decks: fresh.decks, cards: fresh.cards, reported: [] }
 }
 
 // What the browser may know about a card. Never the answer, explanation or snippet.
@@ -130,9 +114,12 @@ export function startSession({ kind = 'due', deckId, cardIds } = {}) {
       attempts: 0,
       missed: false,
       comebackAwarded: false,
+      remote: item.card.remote ?? null, // { quizId, questionId } for cards Flask grades
+      pendingChoice: null, // live quiz: the saved pick, until the whole quiz is submitted to Flask
     })
   }
   const practice = built.items.length > 0 && [...items.values()].every((i) => !i.countsForXp)
+  const gradedByFlask = [...items.values()].some((i) => i.remote && i.correctIndex == null)
   sessions.set(id, { id, items, combo: 0 })
 
   return structuredClone({
@@ -140,6 +127,7 @@ export function startSession({ kind = 'due', deckId, cardIds } = {}) {
     kind: built.kind,
     title: built.title,
     practice,
+    gradedByFlask, // true → no flashcards until Flask has revealed these answers
     deckId: built.deck?.id ?? null,
     items: built.items.map(toPublicItem),
   })
@@ -169,16 +157,54 @@ export function rematchItems(sessionId, cardIds) {
 export function revealAnswer(sessionId, cardId) {
   sessionItem(sessionId, cardId)
   const card = findCard(cardId)
+  if (card.options && card.correctIndex == null) {
+    throw new ApiError('Play this deck as multiple choice first: the server checks its answers.', 409)
+  }
   return { answer: card.options ? card.options[card.correctIndex] : card.answer }
+}
+
+// Which Flask question a pick belongs to, if Flask must grade it (its answer isn't known here yet).
+export function flaskTarget(sessionId, cardId) {
+  const { item } = sessionItem(sessionId, cardId)
+  return item.remote && item.correctIndex == null ? item.remote : null
+}
+
+// Store what Flask revealed about a question (after grading it), so later spaced
+// reviews of this card still work after the server forgets the quiz.
+function learnAnswer(card, item, verdict) {
+  const raw = verdict.correct_answer
+  const index = Number.isInteger(raw) ? raw : card.options.indexOf(raw)
+  if (index >= 0) {
+    card.correctIndex = index
+    card.answer = card.options[index]
+    item.correctIndex = index // the session kept Flask's option order, so positions match
+  }
+  card.explanation = verdict.explanation ?? card.explanation ?? null
+  card.sourceSnippet = verdict.sourceSnippet ?? card.sourceSnippet ?? null
+  card.sourcePage = verdict.sourcePage ?? card.sourcePage ?? null
 }
 
 // POST /api/sessions/:id/answers  { cardId, chosenIndex } or { cardId, selfGrade: 'got'|'missed' }
 // The server grades the answer, applies the XP rules and the schedule, and saves.
-export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade = null }) {
+// With Flask: `verdict` is Flask's answer for this pick, or `deferred: true` keeps the pick
+// until the whole quiz is submitted (the live PDF quiz is marked all at once).
+export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade = null, verdict = null, deferred = false }) {
   const { session, item } = sessionItem(sessionId, cardId)
   const card = findCard(cardId)
   const d = database()
   const now = Date.now()
+
+  if (item.remote && item.correctIndex == null) {
+    if (!Number.isInteger(chosenIndex) || chosenIndex < 0 || chosenIndex >= item.options.length) {
+      throw new ApiError('Choose one of the four options.', 400)
+    }
+    if (deferred) {
+      item.pendingChoice = chosenIndex
+      return structuredClone({ deferred: true, chosenIndex, combo: session.combo, card: publicCard(card) })
+    }
+    if (!verdict) throw new ApiError('The server must check this answer.', 409)
+    learnAnswer(card, item, verdict)
+  }
 
   const selfGraded = selfGrade !== null
   if (!selfGraded && (!Number.isInteger(chosenIndex) || !item.options || chosenIndex < 0 || chosenIndex >= item.options.length)) {
@@ -188,7 +214,7 @@ export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade 
     throw new ApiError('A self-graded answer must be "got" or "missed".', 400)
   }
 
-  const correct = selfGraded ? selfGrade === 'got' : chosenIndex === item.correctIndex
+  const correct = verdict ? Boolean(verdict.correct) : selfGraded ? selfGrade === 'got' : chosenIndex === item.correctIndex
   const firstAttempt = item.attempts === 0
   session.combo = correct ? session.combo + 1 : 0
 
@@ -233,6 +259,16 @@ export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade 
   const deck = d.decks.find((dk) => dk.id === card.deckId)
   if (deck) deck.lastStudiedAt = new Date(now).toISOString()
   persist()
+  world?.log?.({
+    cardId: card.id,
+    deckId: card.deckId,
+    correct,
+    chosenIndex: selfGraded ? null : chosenIndex,
+    selfGrade: selfGraded ? selfGrade : null,
+    xp: scored.xp,
+    combo: session.combo,
+    answeredAt: new Date(now).toISOString(),
+  })
 
   return structuredClone({
     correct,
@@ -255,9 +291,54 @@ export function submitAnswer(sessionId, { cardId, chosenIndex = null, selfGrade 
   })
 }
 
+// The questions of a Flask quiz as this account stored them (text and choices, no answers):
+// used to show a saved result when Flask can't send the question text.
+export function flaskQuizQuestions(quizId) {
+  return database()
+    .cards.filter((c) => c.remote?.quizId === quizId)
+    .map((c) => ({ id: c.remote.questionId, deckId: c.deckId, text: c.question, choices: c.options ?? [] }))
+}
+
+// Batch grading, step 1: the picks waiting for Flask, as POST /submit wants them.
+export function deferredAnswers(sessionId) {
+  const session = sessions.get(sessionId)
+  if (!session) throw new ApiError('This quiz session has expired. Start a new one.', 410)
+  const byQuiz = new Map()
+  for (const item of session.items.values()) {
+    if (!item.remote || item.pendingChoice === null) continue
+    const entry = byQuiz.get(item.remote.quizId) ?? { quizId: item.remote.quizId, answers: {} }
+    entry.answers[String(item.remote.questionId)] = item.pendingChoice
+    byQuiz.set(item.remote.quizId, entry)
+  }
+  return [...byQuiz.values()]
+}
+
+// Step 2: apply Flask's results in quiz order, as if each had been graded on the spot.
+// savedAnswers: the choices Flask saved with the result ({ "<questionId>": index }). Flask keeps
+// the FIRST submission, so after a retry these can differ from the picks in this browser; the
+// saved ones win, so "your answer" always matches the verdict.
+export function applySubmitResults(sessionId, quizId, results, savedAnswers = null) {
+  const session = sessions.get(sessionId)
+  if (!session) throw new ApiError('This quiz session has expired. Start a new one.', 410)
+  const graded = []
+  for (const [cardId, item] of session.items) {
+    if (item.remote?.quizId !== quizId || item.pendingChoice === null) continue
+    const verdict = results.find((r) => String(r.id) === String(item.remote.questionId))
+    if (!verdict) continue
+    const saved = savedAnswers?.[String(item.remote.questionId)]
+    const chosenIndex = Number.isInteger(saved) ? saved : item.pendingChoice
+    item.pendingChoice = null
+    graded.push({ cardId, chosenIndex, ...submitAnswer(sessionId, { cardId, chosenIndex, verdict }) })
+  }
+  return graded
+}
+
 // GET /api/cards/:id/answer: the answer for browsing a deck (outside a quiz).
 export function getCardAnswer(cardId) {
   const card = findCard(cardId)
+  if (card.options && card.correctIndex == null) {
+    throw new ApiError('Answer it in a quiz first: the server reveals the answer after you try.', 409)
+  }
   return {
     answer: card.options ? card.options[card.correctIndex] : card.answer,
     explanation: card.explanation ?? null,
@@ -268,6 +349,39 @@ export function getCardAnswer(cardId) {
 // POST /api/decks/generate → (job) → { deck, cards }: stores the full cards, returns public ones.
 export function saveGeneratedDeck(options) {
   return saveDeck(buildGeneratedDeck(options))
+}
+
+// A deck generated by Flask (POST /api/quizzes). Flask keeps the answers; we keep the
+// deck, the questions and your progress. Answers are learned as Flask grades them.
+export function saveFlaskDeck({ quiz, fileName, title, course }) {
+  const now = new Date().toISOString()
+  const deck = {
+    color: ['lagoon', 'rose', 'sky', 'lime', 'sun', 'tangerine'][database().decks.length % 6],
+    id: `dck_q_${quiz.id}`,
+    title,
+    course,
+    lastStudiedAt: null,
+    exam: null,
+    source: { type: 'pdf', fileName },
+    createdAt: now,
+  }
+  const cards = quiz.questions.map((q) => ({
+    id: `${deck.id}_${q.id}`,
+    deckId: deck.id,
+    type: 'mc',
+    question: q.text,
+    options: q.choices,
+    correctIndex: null, // unknown until Flask grades it
+    answer: null,
+    explanation: null,
+    difficulty: q.difficulty ?? null,
+    topic: q.topic ?? title,
+    sourceSnippet: null,
+    sourcePage: q.sourcePage ?? null,
+    remote: { quizId: quiz.id, questionId: q.id },
+    review: { reps: 0, lapses: 0, intervalDays: 0, lastReviewedAt: null, dueAt: null, lastResult: null },
+  }))
+  return saveDeck({ deck, cards })
 }
 
 // POST /api/decks  { title, course, cards: [{ question, answer }] }
@@ -285,14 +399,7 @@ function saveDeck({ deck, cards }) {
   return structuredClone({ deck, cards: cards.map(publicCard) })
 }
 
-// PATCH /api/me  { firstName, lastName }
-export function updateProfile({ firstName, lastName }) {
-  if (!firstName?.trim()) throw new ApiError('First name can’t be empty.', 400)
-  const d = database()
-  d.user = { ...d.user, firstName: firstName.trim(), lastName: (lastName ?? '').trim() }
-  persist()
-  return structuredClone(d.user)
-}
+// (Your name lives in your Supabase profile: see src/state/AuthProvider.jsx.)
 
 // POST /api/cards/:id/report
 export function reportQuestion(cardId) {
@@ -303,14 +410,3 @@ export function reportQuestion(cardId) {
   return { ok: true }
 }
 
-// Demo only: forget everything and start again from the mock data.
-export function resetDemo() {
-  db = null
-  sessions.clear()
-  try {
-    localStorage.removeItem(DB_KEY)
-    localStorage.removeItem(OLD_SAVE_KEY)
-  } catch {
-    // ignore
-  }
-}

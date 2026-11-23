@@ -11,6 +11,7 @@ import LevelBadge from '../LevelBadge.jsx'
 import { CloseIcon, MenuIcon } from '../icons.jsx'
 import Logo from './Logo.jsx'
 import PlayerCard from './PlayerCard.jsx'
+import DemoBadge from './DemoBadge.jsx'
 import { NAV_ITEMS } from './nav.js'
 
 // Desktop (1024px+): a floating sidebar and an XP HUD pinned to the top right.
@@ -25,6 +26,7 @@ export default function AppShell({ active, focus = false, children }) {
     return (
       <div className="stage min-h-dvh">
         <main className="relative">{children}</main>
+        <DemoBadge className="fixed bottom-4 left-4 z-30 hidden lg:inline-flex" />
       </div>
     )
   }
@@ -91,6 +93,7 @@ function Sidebar({ active }) {
           <Logo />
           <ThemeToggle />
         </div>
+        <DemoBadge className="mb-4 ml-2 self-start" />
         <NavLinks active={active} pillId="nav-pill-desktop" />
         <div className="mt-auto">
           <PlayerCard />
@@ -175,7 +178,10 @@ function MobileBar({ active }) {
     <>
       <header className="vt-mobilebar sticky top-0 z-30 border-b border-border bg-background/95 lg:hidden">
         <div className="flex h-14 items-center justify-between pr-2 pl-4">
-          <Logo />
+          <div className="flex min-w-0 items-center gap-2">
+            <Logo className="h-6" />
+            <DemoBadge short />
+          </div>
           <div className="flex items-center gap-0.5">
             {user && (
               <>

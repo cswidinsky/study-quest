@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your StudyQuest login link</title>
+</head>
+<body style="margin:0; padding:0; background-color:#fffaf5; -webkit-text-size-adjust:100%;">
+<!-- StudyQuest · Your StudyQuest login link. Inline styles only, so every email client shows it the same way. -->
+<div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">Log in to StudyQuest with one click. No password needed.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fffaf5;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px; border-collapse:separate;">
+        <!-- Logo on a dark band: readable whether the client shows emails light or dark -->
+        <tr>
+          <td style="background-color:#16161a; border-radius:20px 20px 0 0; padding:26px 32px;">
+            <img src="{{ .SiteURL }}/brand/studyquest-logo-dark.png" width="180" height="40" alt="StudyQuest" style="display:block; width:180px; height:auto; border:0; outline:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:22px; font-weight:700; color:#ff6b2c;">
+          </td>
+        </tr>
+        <!-- Accent stripe: tangerine and lagoon -->
+        <tr>
+          <td style="font-size:0; line-height:0; height:4px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td width="78%" style="background-color:#ff6b2c; height:4px; font-size:0; line-height:0;">&nbsp;</td>
+              <td width="22%" style="background-color:#14c2d0; height:4px; font-size:0; line-height:0;">&nbsp;</td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff; border:1px solid #f0e3d7; border-top:0; border-radius:0 0 20px 20px; padding:36px 32px 32px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color:#1b1512;">
+            <p style="margin:0 0 8px; font-size:15px; line-height:22px; color:#6f6560;">{{ if .Data.full_name }}Hi {{ .Data.full_name }},{{ else }}Hi there,{{ end }}</p>
+            <h1 style="margin:0 0 14px; font-size:26px; line-height:32px; font-weight:700; letter-spacing:-0.4px; color:#1b1512;">Your login link</h1>
+            <p style="margin:0 0 28px; font-size:16px; line-height:25px; color:#1b1512;">Press the button to log in to StudyQuest. No password needed: your streak is waiting.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="center" bgcolor="#ff6b2c" style="border-radius:999px; background-color:#ff6b2c;">
+                  <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=email&amp;via=magic" target="_blank" style="display:inline-block; padding:14px 30px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; line-height:20px; font-weight:600; color:#1b1512; text-decoration:none; border-radius:999px;">Log in to StudyQuest</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:28px 0 0; font-size:14px; line-height:21px; color:#6f6560;">The link works once and expires after an hour.</p>
+            <p style="margin:20px 0 0; font-size:13px; line-height:19px; color:#6f6560;">Button not working? Copy this link into your browser:<br>
+              <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=email&amp;via=magic" target="_blank" style="color:#c9461a; text-decoration:underline; word-break:break-all;">{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=email&amp;via=magic</a>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:22px 8px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; line-height:18px; color:#6f6560; text-align:center;">
+            StudyQuest · Your notes, played as a game.<br>
+            Sent to {{ .Email }}. If you didn’t ask for this, you can safely ignore it.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

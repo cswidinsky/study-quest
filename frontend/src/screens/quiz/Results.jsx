@@ -10,18 +10,22 @@ import MasteryGem from '../../components/MasteryGem.jsx'
 import Sparks from '../../components/Sparks.jsx'
 import StreakFlame from '../../components/StreakFlame.jsx'
 import { ArrowRightIcon, RefreshIcon } from '../../components/icons.jsx'
+import AnswerReview from './AnswerReview.jsx'
 
 // The end of a session, revealed like a closing scene: the score ring draws,
 // numbers count up, cards that climbed a mastery level pop in, then your weak spots.
-export default function Results({ log, bestCombo, decks, streak, streakLitNow, onRematch }) {
+// graded: a live PDF quiz marked by Flask → { score, total, questions } (Flask's score and its
+// feedback per question, shown even if the rematch round is skipped).
+export default function Results({ log, graded = null, deck = null, bestCombo, decks, streak, streakLitNow, onRematch }) {
   const reduce = useReducedMotion()
   const rise = useRise(20)
   const ringRef = useRef(null)
   const [burst, setBurst] = useState(null)
 
   const main = log.filter((l) => l.round === 'main')
-  const right = main.filter((l) => l.correct).length
-  const score = main.length ? Math.round((right / main.length) * 100) : 0
+  const right = graded ? graded.score : main.filter((l) => l.correct).length
+  const total = graded ? graded.total : main.length
+  const score = total ? Math.round((right / total) * 100) : 0
   const xp = log.reduce((s, l) => s + l.xp, 0)
   const comebacks = log.filter((l) => l.reason === 'comeback').length
   const ups = main.filter((l) => l.correct && masteryIndex(l.masteryAfter) > masteryIndex(l.masteryBefore))
@@ -84,7 +88,7 @@ export default function Results({ log, bestCombo, decks, streak, streakLitNow, o
             <div>
               <CountUp value={score} format={(n) => `${n}%`} delay={0.3} duration={1.4} className="num block text-5xl font-medium sm:text-6xl" />
               <span className="text-sm text-muted">
-                <span className="num">{right}</span> of <span className="num">{main.length}</span> right
+                <span className="num">{right}</span> of <span className="num">{total}</span> right
               </span>
             </div>
           </div>
@@ -94,7 +98,7 @@ export default function Results({ log, bestCombo, decks, streak, streakLitNow, o
           {headline}
         </motion.h1>
         <motion.p variants={rise} className="mt-1 text-lg text-muted">
-          Session complete.
+          {graded ? 'Marked by the StudyQuest server.' : 'Session complete.'}
         </motion.p>
       </div>
 
@@ -117,6 +121,8 @@ export default function Results({ log, bestCombo, decks, streak, streakLitNow, o
           {streakLitNow && <span className="mt-1 block text-xs font-medium">Lit today!</span>}
         </Stat>
       </motion.dl>
+
+      {graded && <AnswerReview questions={graded.questions} deck={deck} fileName={deck?.source?.fileName} />}
 
       {comebacks > 0 && (
         <motion.p variants={rise} className="mt-4 text-center text-sm text-muted">

@@ -10,7 +10,12 @@ import { ArrowRightIcon, FlagIcon, QuoteIcon } from '../../components/icons.jsx'
 // the line from your own notes (and its page), and whether the card moved up a
 // mastery level. Everything here comes from the server's response; any of
 // explanation, sourceSnippet and sourcePage may be missing, and the panel copes.
-export default function Feedback({ deck, answered, onNext, onReport, reported, practice }) {
+// Picks the panel: the verdict, or "answer saved" when the server marks at the end.
+export default function Feedback(props) {
+  return props.answered.result.deferred ? <SavedNote onNext={props.onNext} nextLabel={props.nextLabel} /> : <Verdict {...props} />
+}
+
+function Verdict({ deck, answered, onNext, onReport, reported, practice }) {
   const reduce = useReducedMotion()
   const nextRef = useRef(null)
   const { correct, result } = answered
@@ -156,3 +161,30 @@ function XpLine({ correct, result, practice }) {
 
 // "Page 3" (sourcePage is the PDF page, 1-based).
 const pageLabel = (page) => `Page ${page}`
+
+// A live PDF quiz is marked all at once when you submit: the pick is saved, no verdict yet.
+function SavedNote({ onNext, nextLabel = 'Next' }) {
+  const nextRef = useRef(null)
+  useEffect(() => {
+    const t = setTimeout(() => nextRef.current?.focus({ preventScroll: true }), 50)
+    return () => clearTimeout(t)
+  }, [])
+  return (
+    <motion.section
+      aria-live="polite"
+      className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-surface/90 p-4 sm:p-5"
+      initial={{ opacity: 0, transform: 'translateY(12px)' }}
+      animate={{ opacity: 1, transform: 'translateY(0px)' }}
+      transition={{ duration: 0.35, ease: EASE_OUT }}
+    >
+      <p className="text-sm">
+        <span className="font-medium">Answer saved.</span>{' '}
+        <span className="text-muted">You can change it until you submit the quiz.</span>
+      </p>
+      <Button ref={nextRef} size="lg" onClick={onNext} aria-keyshortcuts="Enter">
+        {nextLabel}
+        <ArrowRightIcon />
+      </Button>
+    </motion.section>
+  )
+}

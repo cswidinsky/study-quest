@@ -127,9 +127,9 @@ gamification (#6, #20).
   `correctIndex`, `answer`, `explanation` or `sourceSnippet` before an answer is graded, and never
   grades anything. The quiz sends the chosen option through `api.submitAnswer`; the response says
   right/wrong, the correct option, the explanation, snippet, page, XP and the card's new state.
-- Until Flask is live, **`src/mocks/server.js` plays the backend**: it owns the data (saved in
-  localStorage, key `studyquest:mock-db:v1`), builds sessions and shuffles options
-  (`lib/session.js`), grades, applies XP and the schedule. Only `src/api.js` imports it, and every
+- Until Flask has users, decks and XP, **`src/mocks/server.js` applies the game rules** on the open
+  "world" (see Accounts below): builds sessions and shuffles options (`lib/session.js`), grades
+  (or applies Flask's verdict), applies XP and the schedule. Only `src/api.js` imports it, and every
   `api.js` function names the Flask endpoint it stands in for (`TODO(backend)`).
 - **`src/lib/levels.js`** holds the XP rules (`xpForAnswer`), **`src/lib/srs.js`** the schedule and
   mastery levels. Both are server logic, written to be ported to Flask as-is.
@@ -145,6 +145,61 @@ gamification (#6, #20).
   the difficulty indicator, XP treats the card as medium, and the feedback falls back to
   "See page N of your notes".
 
+## Accounts and per-user data (Supabase)
+
+- **Supabase Auth** (`src/lib/supabase.js`, `src/state/AuthProvider.jsx`, `useAuth()`). Keys come
+  from `frontend/.env.local` (gitignored; template in `.env.example`). Without keys the app shows a
+  "Connect Supabase" screen. The app is locked until signed in (`App.jsx` → `Gate`).
+- Sign-in screens: `src/screens/auth/` (sign up, log in, email link, forgot, check your email,
+  new password). Errors are turned into sentences in `src/lib/authErrors.js`; the password rules
+  (8+ characters, a letter, a number) live there too.
+- **Email links** land on the home page as `?token_hash=…&type=email|recovery` (our templates in
+  `/supabase/email-templates`); `AuthProvider` verifies them once and cleans the URL. Supabase's
+  default `#access_token` links also work.
+- **Database:** `/supabase/schema.sql` (profiles, user_progress, decks, cards, reviews; RLS so each
+  user only sees their own rows; a trigger makes the profile and empty progress on sign-up).
+- **Two worlds per user**, opened by `api.openWorld()` into the progress server:
+  - real: `src/lib/cloud.js` loads the user's rows, and after each change writes only the rows that
+    changed (debounced, retried, flushed when the tab hides). Nothing is cached in the browser.
+  - demo (Settings → Demo mode, or `?demo=1`): the mock seed, saved in localStorage under the user's
+    id. It never touches the real data. A "Demo mode" badge shows while it's on.
+  `App.jsx` mounts a fresh `GameProvider` per user and per world, so state can't carry over.
+- **No leaks between accounts:** on log out, and whenever a different account signs in on this
+  browser (`claimBrowser`), every `studyquest:*` key except device settings is wiped
+  (`clearLocalData`), and the page reloads.
+- Your name comes from `profiles.full_name` (`useAuth().fullName`, `updateFullName`), not the
+  progress data.
+
+## The quiz server (Flask, issue #21)
+
+- Real world → `apiMode` 'live' (Flask writes and grades quizzes). Demo world → 'mock' (the
+  in-browser generator and grader, never needs a server).
+- **`src/flask.js`** is the only file that calls Flask (`/api/health`, `POST /api/quizzes` with
+  FormData `file`, `POST /api/quizzes/<id>/answer`, `POST /api/quizzes/<id>/submit`). It turns
+  failures into plain messages (`FlaskError`). Dev uses the Vite proxy; a deploy sets
+  `VITE_API_BASE_URL` to the Flask host (which then needs CORS or a rewrite).
+- In live mode a PDF upload becomes a **Flask-graded deck** (`saveFlaskDeck`). Its cards carry
+  `remote: { quizId, questionId }` and `correctIndex: null`. Their options keep Flask's order
+  (grading is by index), and each answer is learned locally once Flask reveals it, so later
+  reviews work offline. Flashcards stay locked until then.
+- **Grading (MVP: end-of-quiz batch grading).** For a live PDF quiz, `api.submitAnswer` only
+  saves each pick ("Answer saved", changeable until submit). After the last question, "Ready to
+  submit?" lists every pick; `finishSession` sends them in ONE `POST /submit` (keys = question
+  ids, values = indices in Flask's option order). On failure nothing is applied, the picks stay
+  and the button says "Try again". On success, Flask's verdicts are applied (XP and schedule
+  still computed by `mocks/server.js`), and the results show Flask's `score`/`total` plus
+  `AnswerReview` (your choice, right/wrong, correct choice, explanation, PDF page and excerpt)
+  even if the rematch is skipped. No per-answer endpoint is used.
+- **Saved results:** after submitting, the address becomes `#/results/<quizId>`
+  (`screens/SavedResult.jsx`). It loads `GET /api/quizzes/<id>/result` (+ `GET /api/quizzes/<id>`
+  for the text, or this account's copy of the deck) and only displays: never submits or awards XP.
+  Until the backend adds that route, it says saved results aren't available yet.
+- **Auth:** every quiz request sends `Authorization: Bearer <Supabase access token>`
+  (`flask.js`). 401 → "session expired"; 404 → quiz/result unavailable (another account's, or
+  the server forgot it).
+- Flask keeps quizzes in memory (until the backend stores them in Supabase): after a restart, an
+  ungraded Flask deck can't be submitted until the PDF is uploaded again (the UI says so).
+
 ## Data
 
 - **Mock seed data lives in `src/mocks/data.js`** (full cards, answer key included). Each card has
@@ -153,8 +208,11 @@ gamification (#6, #20).
 - Every count (due, new, mastery %, accuracy, upcoming, weak spots) is computed from the cards in
   `src/lib/selectors.js`, never stored. `GameProvider` exposes `data` (computed view) and
   `rawData` (what the server sent).
-- **Progress** is saved by the mock server; browser-only settings (sound, vibration) are in
-  `src/lib/storage.js` (key `studyquest:settings:v1`). Settings → "Reset demo" clears both.
+- **Progress** is saved in Supabase (real) or in the per-user demo world (Demo mode); device
+  settings (sound, vibration) are in `src/lib/storage.js` (key `studyquest:settings:v1`).
+  Settings → "Reset demo world" (Demo mode only) starts the demo over.
+- A brand-new account starts empty: the dashboard shows a first-run screen pointing to the first
+  PDF upload, and Review says "Nothing to review yet".
 - Use real-sounding content (real course names, real questions). No lorem ipsum.
 
 ## MVP path (must always work end to end)
