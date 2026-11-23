@@ -1,14 +1,16 @@
 import uuid
+from functools import wraps
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pymupdf
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, make_response, request
 
 from backend.services.llm import LLMError
 from backend.services.pdf_extraction import extract_pdf_text
 from backend.services.quiz_generation import QuizValidationError, generate_quiz
+from backend.services.quiz_store import InvalidSessionError, QuizStore, QuizStoreError
 
 load_dotenv()
 
@@ -55,18 +57,41 @@ def extract():
             status_code = 200
 
     return response, status_code
-        
+
+
 @app.errorhandler(413)
 def upload_too_large(_error):
     return jsonify({
         "error": "Upload exceeds the 10 MiB request limit. Choose a smaller PDF."
     }), 413
-    
-quizzes = {}
+
+
+def require_quiz_user(route):
+    @wraps(route)
+    def protected_route(**params):
+        authorization = request.authorization
+        if not authorization or authorization.type != "bearer" or not authorization.token:
+            return jsonify({"error": "Sign in to access quizzes."}), 401
+
+        try:
+            store = QuizStore.from_environment()
+            owner_id = store.authenticate(authorization.token)
+            response = make_response(route(store, owner_id, **params))
+        except InvalidSessionError:
+            return jsonify({"error": "Your sign-in expired or is invalid. Sign in again."}), 401
+        except QuizStoreError as error:
+            app.logger.warning("Supabase quiz request failed (status %s)", error.status)
+            return jsonify({"error": str(error)}), 503
+
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    return protected_route
 
 
 @app.post("/api/quizzes")
-def create_quiz():
+@require_quiz_user
+def create_quiz(store, owner_id):
     if "file" not in request.files:
         return jsonify({"error": "Upload a PDF using the 'file' field."}), 400
 
@@ -92,7 +117,7 @@ def create_quiz():
         return jsonify({"error": str(error)}), 422
 
     quiz_id = str(uuid.uuid4())
-    quizzes[quiz_id] = questions
+    store.create_quiz(quiz_id, owner_id, questions)
     return jsonify({"id": quiz_id, "questions": strip_answers(questions)}), 201
 
 
@@ -109,16 +134,18 @@ def strip_answers(questions):
 
 
 @app.get("/api/quizzes/<quiz_id>")
-def get_quiz(quiz_id):
-    questions = quizzes.get(quiz_id)
+@require_quiz_user
+def get_quiz(store, owner_id, quiz_id):
+    questions = store.get_quiz(quiz_id, owner_id)
     if questions is None:
         return jsonify({"error": "Quiz not found."}), 404
     return jsonify({"id": quiz_id, "questions": strip_answers(questions)})
 
 
 @app.post("/api/quizzes/<quiz_id>/submit")
-def submit_quiz(quiz_id):
-    questions = quizzes.get(quiz_id)
+@require_quiz_user
+def submit_quiz(store, owner_id, quiz_id):
+    questions = store.get_quiz(quiz_id, owner_id)
     if questions is None:
         return jsonify({"error": "Quiz not found."}), 404
 
@@ -148,4 +175,18 @@ def submit_quiz(quiz_id):
         })
 
     score = sum(result["correct"] for result in results)
-    return jsonify({"score": score, "total": len(questions), "results": results})
+    return jsonify(store.save_result(quiz_id, owner_id, {
+        "answers": submitted,
+        "score": score,
+        "total": len(questions),
+        "results": results,
+    }))
+
+
+@app.get("/api/quizzes/<quiz_id>/result")
+@require_quiz_user
+def get_result(store, owner_id, quiz_id):
+    result = store.get_result(quiz_id, owner_id)
+    if result is None:
+        return jsonify({"error": "Quiz result not found."}), 404
+    return jsonify(result)
