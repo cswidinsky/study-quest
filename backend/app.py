@@ -14,6 +14,8 @@ from backend.services.quiz_store import InvalidSessionError, QuizStore, QuizStor
 
 load_dotenv()
 
+QUIZ_BUILD_FAILED = "We couldn't build a quiz from that PDF. Try again, or try a different file."
+
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
@@ -111,7 +113,11 @@ def create_quiz(store, owner_id):
 
     try:
         questions = generate_quiz(text)["questions"]
-    except (LLMError, QuizValidationError) as error:
+    except QuizValidationError as error:
+        # The details (which check failed) are for us, not the student.
+        app.logger.warning("Quiz generation produced no usable quiz: %s", error)
+        return jsonify({"error": QUIZ_BUILD_FAILED}), 502
+    except LLMError as error:
         return jsonify({"error": str(error)}), 502
     except ValueError as error:
         return jsonify({"error": str(error)}), 422

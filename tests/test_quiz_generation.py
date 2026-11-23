@@ -78,8 +78,8 @@ class TestQuizValidation(unittest.TestCase):
             ("difficulty", "expert"),
             ("difficulty", ["easy"]),
             ("explanation", " "),
-            ("sourcePage", 99),
             ("sourceSnippet", " \n "),
+            ("sourceSnippet", "Words that appear nowhere in the lecture."),
             ("topic", None),
         ]
 
@@ -95,13 +95,19 @@ class TestQuizValidation(unittest.TestCase):
                         source_pages=SOURCE_PAGES,
                     )
 
-    def test_rejects_snippet_found_only_on_another_page(self):
-        with self.assertRaisesRegex(QuizValidationError, "sourceSnippet must appear"):
-            validate_quiz(
-                sample_quiz(),
-                question_count=1,
-                source_pages={1: "Cell membranes regulate transport.", 2: SOURCE_SNIPPET},
-            )
+    def test_corrects_source_page_when_snippet_is_on_another_page(self):
+        for wrong_page in (1, 99):
+            with self.subTest(source_page=wrong_page):
+                quiz = sample_quiz()
+                quiz["questions"][0]["sourcePage"] = wrong_page
+
+                result = validate_quiz(
+                    quiz,
+                    question_count=1,
+                    source_pages={1: "Cell membranes regulate transport.", 2: SOURCE_SNIPPET},
+                )
+
+                self.assertEqual(result["questions"][0]["sourcePage"], 2)
 
     def test_rejects_duplicate_questions(self):
         quiz = sample_quiz()
@@ -135,6 +141,160 @@ class TestQuizValidation(unittest.TestCase):
             question["options"][question["correctIndex"]],
             original_answer,
         )
+
+def quiz_with_snippet(snippet, page_text, source_page=1):
+    quiz = sample_quiz()
+    quiz["questions"][0]["sourceSnippet"] = snippet
+    quiz["questions"][0]["sourcePage"] = source_page
+    return quiz, {1: page_text}
+
+
+class TestSnippetMatching(unittest.TestCase):
+    """The snippet check tolerates the ways real PDF text differs from a copied quote."""
+
+    def assert_accepted(self, snippet, page_text):
+        quiz, pages = quiz_with_snippet(snippet, page_text)
+        result = validate_quiz(quiz, question_count=1, source_pages=pages)
+        self.assertEqual(result["questions"][0]["sourcePage"], 1)
+
+    def test_curly_quotes_and_apostrophes(self):
+        self.assert_accepted(
+            snippet='The "pump" doesn\'t rest.',
+            page_text="The “pump” doesn’t rest.",
+        )
+        self.assert_accepted(
+            snippet="The “pump” doesn’t rest.",
+            page_text='The "pump" doesn\'t rest.',
+        )
+
+    def test_word_split_by_hyphen_at_line_break(self):
+        self.assert_accepted(
+            snippet="Passive transport follows a concentration gradient.",
+            page_text="Passive transport follows a concen-\ntration gradient.",
+        )
+        self.assert_accepted(
+            snippet="Passive transport follows a concentration gradient.",
+            page_text="Passive transport follows a concen-\r\n   tration gradient.",
+        )
+        # PyMuPDF often extracts the break as a soft hyphen (seen with an embedded Arial font).
+        self.assert_accepted(
+            snippet="Passive transport follows a concentration gradient.",
+            page_text="Passive\xa0transport\xa0follows\xa0a\xa0concen\xad\ntration\xa0gradient.",
+        )
+
+    def test_compound_word_hyphen_at_line_break(self):
+        self.assert_accepted(
+            snippet="Use self-assessment after each lecture.",
+            page_text="Use self-\nassessment after each lecture.",
+        )
+
+    def test_ligatures(self):
+        self.assert_accepted(
+            snippet="The first flow is efficient.",
+            page_text="The ﬁrst ﬂow is eﬃcient.",
+        )
+
+    def test_different_capitalization(self):
+        self.assert_accepted(
+            snippet="passive transport follows a concentration gradient.",
+            page_text="PASSIVE TRANSPORT FOLLOWS A CONCENTRATION GRADIENT.",
+        )
+
+    def test_whitespace_dashes_and_soft_hyphens(self):
+        self.assert_accepted(
+            snippet="Osmosis - the movement of water - needs no ATP.",
+            page_text="Osmosis – the move­ment of water —\n needs no   ATP.",
+        )
+
+    def test_rejects_snippet_found_nowhere(self):
+        quiz, pages = quiz_with_snippet(
+            "Glucose enters through aquaporins.",
+            "Passive transport follows a concentration gradient.",
+        )
+        with self.assertRaises(QuizValidationError):
+            validate_quiz(quiz, question_count=1, source_pages=pages)
+
+
+LECTURE_PAGES = {
+    1: "Passive transport follows a concentration gradient.",
+    2: "Osmosis is the movement of water toward higher solute concentration.",
+    3: "Active transport uses ATP to move solutes against their gradient.",
+}
+LECTURE_TEXT = "\n\n".join(f"--- Page {n} ---\n{text}" for n, text in LECTURE_PAGES.items())
+
+
+def five_questions(bad_ids=()):
+    """Five valid questions; the ids in bad_ids get a snippet that isn't in the lecture."""
+    snippets = [
+        (1, "Passive transport follows a concentration gradient."),
+        (2, "Osmosis is the movement of water"),
+        (3, "Active transport uses ATP"),
+        (2, "toward higher solute concentration"),
+        (3, "move solutes against their gradient"),
+    ]
+    questions = []
+    for number, (page, snippet) in enumerate(snippets, start=1):
+        questions.append({
+            "id": number,
+            "question": f"Question number {number}?",
+            "options": [f"Right {number}", f"Wrong A{number}", f"Wrong B{number}", f"Wrong C{number}"],
+            "correctIndex": 0,
+            "difficulty": "easy",
+            "explanation": f"Explanation {number}.",
+            "sourcePage": page,
+            "sourceSnippet": "This sentence is not in the PDF." if number in bad_ids else snippet,
+            "topic": "Transport",
+        })
+    return {"status": "ready", "reason": None, "questions": questions}
+
+
+class TestGenerationKeepsGoodQuestions(unittest.TestCase):
+    def generate(self, *responses):
+        with (
+            patch.dict(os.environ, {"LLM_API_KEY": "test-only-key"}),
+            patch("backend.services.quiz_generation.OpenAI") as factory,
+        ):
+            client = factory.return_value.__enter__.return_value
+            client.responses.create.side_effect = [
+                SimpleNamespace(status="completed", output_text=json.dumps(r)) for r in responses
+            ]
+            try:
+                return generate_quiz(LECTURE_TEXT, question_count=5)
+            finally:
+                self.calls = client.responses.create.call_count
+
+    def test_one_bad_question_out_of_five_is_dropped(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={3}))
+
+        self.assertEqual(self.calls, 1)  # 4 of 5 is enough: no retry
+        questions = result["questions"]
+        self.assertEqual([q["id"] for q in questions], [1, 2, 3, 4])
+        self.assertNotIn("Question number 3?", [q["question"] for q in questions])
+        for q in questions:
+            self.assertEqual(q["options"][q["correctIndex"]], q["question"].replace("Question number ", "Right ").rstrip("?"))
+
+    def test_retries_once_when_too_few_questions_survive(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={1, 2, 3}), five_questions())
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(len(result["questions"]), 5)
+
+    def test_retries_once_after_unusable_response(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({"status": "ready", "reason": None, "questions": []}, five_questions())
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(len(result["questions"]), 5)
+
+    def test_fails_only_if_retry_is_still_too_short(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaises(QuizValidationError):
+                self.generate(five_questions(bad_ids={1, 2, 3}), five_questions(bad_ids={2, 4}))
+
+        self.assertEqual(self.calls, 2)
+
 
 class TestQuizGeneration(unittest.TestCase):
     SOURCE = (
