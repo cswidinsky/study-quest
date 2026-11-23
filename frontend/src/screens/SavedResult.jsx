@@ -30,7 +30,7 @@ export default function SavedResult({ id }) {
   const deck = result?.deckId ? data?.decks.find((d) => d.id === result.deckId) : null
 
   return (
-    <motion.div className="mx-auto max-w-3xl px-4 pt-7 pb-24 sm:px-6 lg:pt-24" initial="hidden" animate="show" variants={stagger(0.07, 0.05)}>
+    <motion.div className="mx-auto max-w-[1100px] px-4 pt-7 pb-24 *:max-w-3xl sm:px-6 lg:pt-24" initial="hidden" animate="show" variants={stagger(0.07, 0.05)}>
       <motion.header variants={rise}>
         <h1 className="text-[32px] leading-tight font-semibold tracking-tight sm:text-[44px]">{deck?.title ?? 'Quiz result'}</h1>
         {state.status === 'ready' && (

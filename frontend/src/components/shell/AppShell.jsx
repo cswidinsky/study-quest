@@ -26,7 +26,8 @@ export default function AppShell({ active, focus = false, children }) {
     return (
       <div className="stage min-h-dvh">
         <main className="relative">{children}</main>
-        <DemoBadge className="fixed bottom-4 left-4 z-30 hidden lg:inline-flex" />
+        {/* Desktop only: on phones it would cover the quiz. */}
+        <DemoBadge className="fixed bottom-4 left-4 z-30" display="hidden lg:inline-flex" />
       </div>
     )
   }

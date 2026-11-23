@@ -4,6 +4,10 @@ import { levelProgress } from '../../lib/levels.js'
 import { formatNumber } from '../../lib/format.js'
 import { LogOutIcon } from '../icons.jsx'
 
+// The sidebar is narrow: 2,760 becomes "2.8K" so the line never gets cut off.
+const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 })
+const compactXp = (n) => (n >= 1000 ? compact.format(n) : formatNumber(n))
+
 // Who you are: name, level and total XP, and the log-out button. (The live XP bar lives in the HUD.)
 export default function PlayerCard() {
   const { data } = useGame()
@@ -28,7 +32,11 @@ export default function PlayerCard() {
           </span>
           <span className="block truncate text-xs text-muted">
             <span className="sr-only">Level</span>
-            <span aria-hidden="true">Lv</span> <span className="num">{level.level}</span> · <span className="num">{formatNumber(user.xp.total)}</span> XP
+            <span aria-hidden="true">Lv</span> <span className="num">{level.level}</span> ·{' '}
+            <span className="num" title={`${formatNumber(user.xp.total)} XP`} aria-hidden="true">
+              {compactXp(user.xp.total)}
+            </span>
+            <span className="sr-only">{formatNumber(user.xp.total)}</span> XP
           </span>
         </span>
       </a>

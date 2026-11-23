@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { masteryIndex, masteryLabel } from '../../lib/srs.js'
 import { EASE_CINEMA, EASE_OUT } from '../../lib/motion.js'
+import { revealElement } from '../../lib/smoothScroll.js'
 import MasteryGem from '../../components/MasteryGem.jsx'
 import Button from '../../components/Button.jsx'
 import { ArrowRightIcon, FlagIcon, QuoteIcon } from '../../components/icons.jsx'
@@ -26,7 +27,12 @@ function Verdict({ deck, answered, onNext, onReport, reported, practice }) {
 
   useEffect(() => {
     const t = setTimeout(() => nextRef.current?.focus({ preventScroll: true }), 50)
-    return () => clearTimeout(t)
+    // Once the panel has slid in, make sure its button isn't hidden below the fold.
+    const r = setTimeout(() => revealElement(nextRef.current), 450)
+    return () => {
+      clearTimeout(t)
+      clearTimeout(r)
+    }
   }, [])
 
   return (
@@ -167,7 +173,12 @@ function SavedNote({ onNext, nextLabel = 'Next' }) {
   const nextRef = useRef(null)
   useEffect(() => {
     const t = setTimeout(() => nextRef.current?.focus({ preventScroll: true }), 50)
-    return () => clearTimeout(t)
+    // Once the panel has slid in, make sure its button isn't hidden below the fold.
+    const r = setTimeout(() => revealElement(nextRef.current), 450)
+    return () => {
+      clearTimeout(t)
+      clearTimeout(r)
+    }
   }, [])
   return (
     <motion.section

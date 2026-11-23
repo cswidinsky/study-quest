@@ -142,7 +142,7 @@ export async function getSavedResult(quizId) {
     result = await flask.getResult(quizId)
   } catch (error) {
     if (error.status === flask.ROUTE_MISSING) {
-      throw new Error('This server can’t load saved results yet. Your score showed when you submitted; saved results arrive with the next backend update.')
+      throw new Error('Saved results aren’t available right now. Try again in a little while.')
     }
     if (error.status === 404) throw new Error('There’s no saved result for this quiz. It may belong to another account, or it hasn’t been submitted yet.')
     throw error
@@ -189,7 +189,8 @@ export function getCardAnswer(cardId) {
 // TODO(backend): POST /api/decks/generate (multipart: file, title, course, questionCount) → { jobId },
 // then poll GET /api/jobs/:id → { status, stageIndex, progress, result: { deck, cards } }
 // Live: POST /api/quizzes (multipart "file") → { id, questions: [{ id, text, choices, difficulty }] }.
-// Flask always writes 5 questions for now. Progress is shown as steady steps that hold at 92%
+// Flask asks the AI for 5 and returns the ones it could check against the PDF (at least 4), so the
+// deck has however many questions it returns. Progress is shown as steady steps that hold at 92%
 // until the server answers (a real request can't report its progress).
 export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) {
   if (isLive()) return generateWithFlask(file, options, { onProgress, signal })

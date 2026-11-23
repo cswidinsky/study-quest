@@ -356,14 +356,14 @@ class TestQuizGeneration(unittest.TestCase):
         request = SimpleNamespace()
         provider_message = "Provider details that should stay private"
         errors = (
-            (APITimeoutError(request), "timed out"),
+            (APITimeoutError(request), "took too long"),
             (
                 RateLimitError(
                     provider_message,
                     response=SimpleNamespace(request=request, status_code=429, headers={}),
                     body=None,
                 ),
-                "rate limit reached",
+                "busy right now",
             ),
             (
                 AuthenticationError(
@@ -371,9 +371,9 @@ class TestQuizGeneration(unittest.TestCase):
                     response=SimpleNamespace(request=request, status_code=401, headers={}),
                     body=None,
                 ),
-                "rejected the API key",
+                "isn't available right now",
             ),
-            (OpenAIError(provider_message), "Quiz generation failed"),
+            (OpenAIError(provider_message), "couldn't write your quiz"),
         )
         with (
             patch.dict(os.environ, {"LLM_API_KEY": "test-only-key"}),
@@ -383,9 +383,14 @@ class TestQuizGeneration(unittest.TestCase):
             for error, message in errors:
                 with self.subTest(error=type(error).__name__):
                     client.responses.create.side_effect = error
-                    with self.assertRaisesRegex(LLMError, message) as raised:
+                    with (
+                        self.assertLogs("backend.services.quiz_generation", level="WARNING"),
+                        self.assertRaisesRegex(LLMError, message) as raised,
+                    ):
                         generate_quiz(self.SOURCE, question_count=1)
                     self.assertNotIn(provider_message, str(raised.exception))
+                    for jargon in ("OpenAI", "LLM_API_KEY", "quota", "API"):
+                        self.assertNotIn(jargon, str(raised.exception))
 
     def test_rejects_invalid_input_before_api_call(self):
         invalid_cases = [

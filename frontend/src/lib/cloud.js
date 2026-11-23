@@ -14,21 +14,19 @@ const PAGE = 1000 // Supabase returns at most 1,000 rows per request
 const CHUNK = 400 // rows per write
 const DIFFICULTIES = new Set(['easy', 'medium', 'hard'])
 
-// A Supabase error, as a sentence a student can act on.
+// A Supabase error, as a sentence a student can act on. The technical details go to the
+// console for us (e.g. a missing table means supabase/schema.sql hasn't been run).
 export function friendlyDbError(error) {
   const code = error?.code ?? ''
   const message = String(error?.message ?? '')
-  if (code === '42P01' || code === 'PGRST205' || /does not exist|schema cache/i.test(message)) {
-    return new Error('Your Supabase database isn’t set up yet. Run supabase/schema.sql in the Supabase SQL editor, then reload.')
-  }
+  console.warn('Supabase error', code, message)
   if (code === 'PGRST301' || code === 'PGRST303' || /jwt/i.test(message)) {
     return new Error('Your session has expired. Log out and log in again.')
   }
-  if (code === '42501') return new Error('Supabase refused to save that (permission denied). Check that schema.sql ran fully.')
   if (/fetch|network|load failed/i.test(message)) {
-    return new Error('Couldn’t reach Supabase. Check your internet connection.')
+    return new Error('Couldn’t reach StudyQuest. Check your internet connection and try again.')
   }
-  return new Error(message || 'Something went wrong while talking to Supabase.')
+  return new Error('Your progress couldn’t be saved or loaded right now. Try again in a moment.')
 }
 
 async function must(request) {

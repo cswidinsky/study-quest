@@ -58,9 +58,9 @@ export default function AuthScreen() {
         <ThemeToggle />
       </header>
 
-      <main className="mx-auto grid min-h-dvh max-w-[1180px] items-center gap-10 px-4 pt-24 pb-12 sm:px-8 lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-20 lg:pt-16">
+      <main className="mx-auto grid min-h-dvh max-w-[1180px] content-start items-center gap-10 lg:content-center px-4 pt-24 pb-12 sm:px-8 lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-20 lg:pt-16">
         <motion.div initial="hidden" animate="show" variants={stagger(0.08, 0.05)} className="max-w-[560px]">
-          <motion.h1 variants={rise} className="text-[38px] leading-[1.02] font-semibold tracking-[-0.035em] sm:text-[52px] lg:text-[60px]">
+          <motion.h1 variants={rise} className="text-[38px] leading-[1.02] font-semibold tracking-[-0.035em] text-balance sm:text-[52px] lg:text-[60px]">
             Your notes, played as a game.
           </motion.h1>
           <motion.p variants={rise} className="mt-5 max-w-[46ch] text-base text-muted sm:text-lg">
@@ -538,7 +538,8 @@ function ResetPassword() {
 function Setup() {
   return (
     <div>
-      <Heading title="Connect Supabase">StudyQuest needs your Supabase project to create accounts.</Heading>
+      <Heading title="StudyQuest isn’t ready yet">Accounts aren’t switched on for this site yet. Please check back soon.</Heading>
+      <p className="mb-3 text-sm font-medium">If you run this site:</p>
       <ol className="list-decimal space-y-3 pl-5 text-sm marker:text-muted">
         <li>
           Open <code className="rounded bg-border/60 px-1.5 py-0.5 text-[13px]">frontend/.env.local</code>

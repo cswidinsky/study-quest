@@ -96,7 +96,16 @@ export default function Profile() {
           <h2 id="courses-heading" className="text-sm font-semibold">
             Your courses
           </h2>
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {courses.length === 0 && (
+            <p className="mt-2 text-sm text-muted">
+              No courses yet.{' '}
+              <a href="#/new" className="font-medium text-text underline decoration-border decoration-2 underline-offset-4 hover:decoration-accent">
+                Upload a lecture PDF
+              </a>{' '}
+              and its course shows up here.
+            </p>
+          )}
+          <ul className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-3 ${courses.length ? 'mt-4' : ''}`}>
             {courses.map(([name, list]) => (
               <li key={name}>
                 <a

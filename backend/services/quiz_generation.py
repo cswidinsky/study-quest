@@ -41,6 +41,9 @@ MIN_GOOD_SHARE = 0.75
 
 logger = logging.getLogger(__name__)
 
+# Shown when quiz writing is misconfigured (missing or rejected API key). Details go to the log.
+QUIZ_WRITING_UNAVAILABLE = "Quiz writing isn't available right now. Try again later."
+
 # Curly quotes, primes and dash variants become their plain ASCII forms.
 _PUNCTUATION = str.maketrans({
     "‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'",
@@ -295,9 +298,8 @@ def validate_generation_result(data, *, question_count, source_pages, min_questi
 
         # Keep the user-facing message controlled by our application.
         raise InsufficientContentError(
-            "This document does not contain enough supported study material "
-            f"for {question_count} distinct questions. "
-            "Try fewer questions or upload more detailed notes."
+            "This PDF doesn't have enough study material for a quiz. "
+            "Try a PDF with more detailed notes, like a full lecture."
         )
 
     if data["status"] != "ready" or data["reason"] is not None:
@@ -316,10 +318,12 @@ def generate_quiz(lecture_text, question_count=5):
         raise ValueError("Question count must be an integer from 1 to 10.")
 
     if not isinstance(lecture_text, str) or not lecture_text.strip():
-        raise ValueError("Lecture text cannot be empty.")
+        raise ValueError("We couldn't find any text in that PDF.")
 
     if len(lecture_text) > 40_000:
-        raise ValueError("Lecture text exceeds the 40,000-character limit.")
+        raise ValueError(
+            "That PDF has too much text for one quiz. Try a shorter PDF, like a single lecture."
+        )
 
     page_parts = PAGE_MARKER.split(lecture_text)
     source_pages = {
@@ -328,13 +332,14 @@ def generate_quiz(lecture_text, question_count=5):
     }
 
     if not source_pages:
-        raise ValueError("Lecture text must include PDF page markers.")
+        raise ValueError("We couldn't read the pages of that PDF. Try exporting it again.")
 
     api_key = os.environ.get("LLM_API_KEY", "").strip()
     model = os.environ.get("LLM_MODEL", "gpt-4.1-mini").strip()
 
     if not api_key or not model:
-        raise LLMError("Set LLM_API_KEY and a valid LLM_MODEL.")
+        logger.error("Quiz generation is not configured: set LLM_API_KEY and LLM_MODEL.")
+        raise LLMError(QUIZ_WRITING_UNAVAILABLE)
 
     instructions = (
         "You create accurate multiple-choice quizzes from lecture slides "
@@ -455,26 +460,32 @@ def _request_quiz(*, api_key, model, instructions, lecture_text, question_count,
                 max_output_tokens=question_count * 600 + 500,
                 store=False,
             )
+    # Students see a plain sentence; the technical reason goes to the server log.
     except APITimeoutError:
+        logger.warning("OpenAI timed out while generating a quiz.")
         raise LLMError(
-            "OpenAI timed out while generating the quiz. Try requesting fewer questions."
+            "Writing your quiz took too long. Try again, or try a shorter PDF."
         ) from None
     except RateLimitError:
+        logger.warning("OpenAI rate limit or quota reached.")
         raise LLMError(
-            "OpenAI rate limit reached. Wait before retrying, or check your API quota."
+            "StudyQuest is busy right now. Wait a minute, then try again."
         ) from None
     except AuthenticationError:
+        logger.error("OpenAI rejected the API key: check LLM_API_KEY.")
+        raise LLMError(QUIZ_WRITING_UNAVAILABLE) from None
+    except OpenAIError as error:
+        logger.error(
+            "OpenAI request failed (%s): check API access, billing and the model.",
+            type(error).__name__,
+        )
         raise LLMError(
-            "OpenAI rejected the API key. Check that LLM_API_KEY is valid."
-        ) from None
-    except OpenAIError:
-        raise LLMError(
-            "Quiz generation failed. Check API access, billing, "
-            "model availability, and your connection before retrying."
+            "We couldn't write your quiz right now. Try again in a moment."
         ) from None
 
     if response.status != "completed" or not response.output_text.strip():
-        raise LLMError("OpenAI did not return a complete quiz response.")
+        logger.warning("OpenAI returned an incomplete quiz response (status %s).", response.status)
+        raise LLMError("We couldn't finish writing your quiz. Try again.")
 
     try:
         return json.loads(response.output_text)

@@ -43,14 +43,18 @@ export default function XpBar({ value, max, level, height = 'h-2', label, delay 
   }, [value, max, level, reduce, animate, scope, delay])
 
   return (
-    <div className={glow ? '[filter:drop-shadow(0_0_6px_color-mix(in_oklab,var(--color-accent)_55%,transparent))]' : ''}>
+    // The grey track sits outside the glow filter, so only the filled part glows
+    // (an empty bar at 0 XP has nothing to glow).
+    <div className="relative">
+      <div className={`${height} rounded-full bg-border`} aria-hidden="true" />
+      <div className={`absolute inset-0 ${glow ? '[filter:drop-shadow(0_0_6px_color-mix(in_oklab,var(--color-accent)_55%,transparent))]' : ''}`}>
       <div
         role="progressbar"
         aria-label={label ?? `XP towards level ${level + 1}`}
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuenow={value}
-        className={`${height} relative overflow-hidden rounded-full bg-border`}
+        className={`${height} relative overflow-hidden rounded-full`}
       >
         <div
           ref={scope}
@@ -67,6 +71,7 @@ export default function XpBar({ value, max, level, height = 'h-2', label, delay 
             transition={{ duration: 0.9, ease: EASE_OUT }}
           />
         )}
+      </div>
       </div>
     </div>
   )
