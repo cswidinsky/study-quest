@@ -8,6 +8,7 @@ import { EASE_CINEMA, stagger, useRise } from '../lib/motion.js'
 import { play } from '../lib/sound.js'
 import { buzz } from '../lib/haptics.js'
 import { navigate } from '../lib/router.js'
+import { plural } from '../lib/format.js'
 import Sparks from '../components/Sparks.jsx'
 import Button from '../components/Button.jsx'
 import QuizBar from './quiz/QuizBar.jsx'
@@ -440,8 +441,9 @@ function SubmitQuiz({ items, picks, submitting, error, onSubmit, onEdit }) {
         Ready to submit?
       </motion.h1>
       <motion.p variants={rise} className="mt-2 text-muted">
-        The StudyQuest server marks all <span className="num">{items.length}</span> answers at once. You can still change any of
-        them.
+        {items.length === 1
+          ? 'The StudyQuest server marks your answer. You can still change it.'
+          : `The StudyQuest server marks all ${items.length} answers at once. You can still change any of them.`}
       </motion.p>
 
       <motion.ol variants={rise} className="mt-7 space-y-2">
@@ -477,7 +479,7 @@ function SubmitQuiz({ items, picks, submitting, error, onSubmit, onEdit }) {
       <motion.div variants={rise} className="mt-6 flex flex-wrap items-center gap-3">
         <Button size="lg" className="h-12 px-7 text-base" onClick={onSubmit} disabled={!ready || submitting} aria-busy={submitting || undefined}>
           {submitting && <span className="size-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" />}
-          {submitting ? 'Marking your answers…' : error ? 'Try again' : `Submit ${items.length} answers`}
+          {submitting ? 'Marking your answers…' : error ? 'Try again' : `Submit ${plural(items.length, 'answer')}`}
         </Button>
         {!ready && (
           <span className="text-sm text-muted">
