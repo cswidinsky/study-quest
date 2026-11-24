@@ -292,6 +292,16 @@ def five_questions(bad_ids=(), count=5, first=1):
     return {"status": "ready", "reason": None, "questions": questions}
 
 
+def repeated_questions(count, first=1):
+    """`count` valid questions with different wording that all ask the same thing: same quote,
+    same correct answer. Only one of them survives repeat removal."""
+    quiz = five_questions(count=count, first=first)
+    for q in quiz["questions"]:
+        q["sourcePage"], q["sourceSnippet"] = 1, "Passive transport follows a concentration gradient."
+        q["options"][0] = "Down the concentration gradient"
+    return quiz
+
+
 class TestGenerationKeepsGoodQuestions(unittest.TestCase):
     def generate(self, *responses, count=5):
         with (
@@ -368,6 +378,71 @@ class TestGenerationKeepsGoodQuestions(unittest.TestCase):
 
         self.assertEqual(self.calls, 2)
         self.assertEqual(len(result["questions"]), 5)
+
+    # Review of PR #44, fix 1: a quiz needs at least 3 distinct questions (any request of 3+).
+
+    def test_three_asked_one_returned_retries_then_fails(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaisesRegex(QuizValidationError, "needs at least 3"):
+                self.generate(five_questions(count=1), five_questions(count=1), count=3)
+
+        self.assertEqual(self.calls, 2)  # 1 of 1 passes the 80% rule, but 1 question is too few
+
+    def test_three_asked_one_returned_then_three_on_retry(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(count=1), five_questions(count=3), count=3)
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(len(result["questions"]), 3)
+
+    def test_three_valid_questions_that_repeat_each_other_count_as_one(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaises(QuizValidationError):
+                self.generate(repeated_questions(3), repeated_questions(3), count=3)
+
+        self.assertEqual(self.calls, 2)
+
+    def test_repeats_inside_one_response_count_against_the_eighty_percent_rule(self):
+        # 5 valid, but 3 of them are the same question: 3 distinct of 5 is under 80%.
+        padded = five_questions()
+        padded["questions"][2:] = repeated_questions(3, first=3)["questions"]
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(padded, five_questions())
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(len(result["questions"]), 5)
+
+    def test_one_or_two_asked_need_only_one(self):
+        # The 3-question minimum is for requests of 3 or more (the app asks for 3 to 20).
+        result = self.generate(five_questions(count=1), count=2)
+        self.assertEqual(self.calls, 1)
+        self.assertEqual(len(result["questions"]), 1)
+
+    # Review of PR #44, fix 2: an attempt that passes beats one that doesn't, even with fewer
+    # questions; the number of valid questions only breaks ties.
+
+    def test_a_retry_that_passes_is_kept_on_a_tie(self):
+        # First: 7 of 10 valid (fails). Retry: the model says the PDF supports 7, all valid (passes).
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={1, 2, 3}, count=10), five_questions(count=7), count=10)
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(sorted(q["question"] for q in result["questions"]), sorted(f"Question number {n}?" for n in range(1, 8)))
+
+    def test_a_passing_attempt_beats_a_failing_one_with_more_questions(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={1, 2, 3}, count=10), five_questions(count=6), count=10)
+
+        self.assertEqual(len(result["questions"]), 6)
+
+    def test_no_quiz_when_neither_attempt_passes(self):
+        # 2 of 3 fails the 80% rule; the retry's 1 of 1 fails the 3-question minimum.
+        # Neither passes, so there's no 1- or 2-question quiz: the friendly error instead.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaises(QuizValidationError):
+                self.generate(five_questions(bad_ids={2}, count=3), five_questions(count=1), count=3)
+
+        self.assertEqual(self.calls, 2)
 
     def test_fails_only_if_retry_is_still_too_short(self):
         with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
@@ -500,15 +575,24 @@ class TestLargeQuizzesAreWrittenInBatches(unittest.TestCase):
             self.generate({1: [INSUFFICIENT], 2: [INSUFFICIENT]}, parallel=False)
 
     def test_only_the_batch_below_eighty_percent_retries(self):
+        # 10 + 5 = 15 of 20 fails the quiz's 80% rule; only batch 2 (5 of 10) asks again.
         with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
             result = self.generate({
                 1: [five_questions(count=10)],
-                2: [five_questions(bad_ids={1, 2, 3}, count=10, first=11), five_questions(count=10, first=11)],
+                2: [five_questions(bad_ids={1, 2, 3, 4, 5}, count=10, first=11), five_questions(count=10, first=11)],
             })
 
         self.assertEqual(self.calls(1), 1)
-        self.assertEqual(self.calls(2), 2)  # 7 of 10 is too few: that batch asks again
+        self.assertEqual(self.calls(2), 2)
         self.assertEqual(len(result["questions"]), 20)
+
+    def test_no_retry_when_the_whole_quiz_already_passes(self):
+        # Batch 2 keeps only 7 of 10, but 17 of 20 passes: no extra wait for a retry.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({1: [five_questions(count=10)], 2: [five_questions(bad_ids={1, 2, 3}, count=10, first=11)]})
+
+        self.assertEqual(self.calls(), 2)
+        self.assertEqual(len(result["questions"]), 17)
 
     def test_eighty_percent_rule_counts_the_whole_quiz(self):
         # Batch 2 keeps 7 of 10 even after its retry: 17 of 20 is still 85%, so the quiz is kept.
@@ -527,6 +611,39 @@ class TestLargeQuizzesAreWrittenInBatches(unittest.TestCase):
                     1: [five_questions(bad_ids=bad, count=10), five_questions(bad_ids=bad, count=10)],
                     2: [five_questions(bad_ids=bad, count=10, first=11), five_questions(bad_ids=bad, count=10, first=11)],
                 })
+
+    def test_the_best_mix_of_attempts_is_chosen_across_batches(self):
+        # Batch 2's first try keeps 5 of 10, its retry 4 of 7: neither passes on its own, and the
+        # retry has fewer questions. But 10 + 4 = 14 of 17 passes the quiz's 80% rule, while
+        # 10 + 5 = 15 of 20 doesn't, so the retry is the one used.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({
+                1: [five_questions(count=10)],
+                2: [five_questions(bad_ids={1, 2, 3, 4, 5}, count=10, first=11), five_questions(bad_ids={1, 2, 3}, count=7, first=11)],
+            })
+
+        self.assertEqual(len(result["questions"]), 14)
+
+    def test_too_few_questions_overall_retries_the_batches_that_can_help(self):
+        # 20 asked: batch 1 writes 1 question, batch 2 says its pages have nothing to ask.
+        # 1 question is too few, so batch 1 tries again (batch 2 isn't asked twice).
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({1: [five_questions(count=1), five_questions(count=4)], 2: [INSUFFICIENT]}, parallel=False)
+
+        self.assertEqual(self.calls(1), 2)
+        self.assertEqual(self.calls(2), 1)
+        self.assertEqual(len(result["questions"]), 4)
+
+    def test_repeats_across_batches_can_make_a_quiz_too_small(self):
+        # 11 asked (6 + 5). Each batch writes the same 2 questions: 2 distinct, so both retry.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(
+                {1: [five_questions(count=2), five_questions(count=6)], 2: [five_questions(count=2), five_questions(count=5, first=7)]},
+                count=11,
+            )
+
+        self.assertEqual(self.calls(), 4)
+        self.assertEqual(len(result["questions"]), 11)
 
     def test_a_timed_out_batch_fails_the_quiz_with_its_message(self):
         def create(**request):

@@ -205,9 +205,14 @@ It checks that each source snippet appears on the cited page after
 collapsing whitespace to account for PDF line breaks.
 Options are shuffled while preserving the answer key.
 
-A batch is retried once (if the time budget allows) when fewer than 80% of its
-questions pass. The share is counted against what the model says the PDF
-supports, so a short PDF returns as many good questions as it has (12 of 20).
+A quiz is accepted when at least 80% of its questions pass validation, counted
+against what the model says the PDF supports (so a short PDF returns as many
+good questions as it has: 12 of 20), and it has at least 3 distinct questions
+(for requests of 3 or more). Repeats inside one response count as failures.
+If not, the batches that fall short are retried once (if the time budget
+allows), and the best mix of attempts is kept: one that passes always wins,
+then the most distinct questions. If none passes, the student sees the
+friendly "couldn't build a quiz" error.
 
 The model may report insufficient content instead of generating a quiz.
 The command then displays an explanatory error and exits unsuccessfully.

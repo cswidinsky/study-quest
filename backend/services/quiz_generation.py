@@ -1,4 +1,5 @@
 import difflib
+import itertools
 import json
 import logging
 import math
@@ -44,11 +45,14 @@ PAGE_MARKER = re.compile(r"^--- Page ([1-9]\d*) ---[ \t]*\r?$", re.MULTILINE)
 MAX_QUESTIONS = 20
 BATCH_SIZE = 10
 
-# A generated batch is usable when at least this share of its questions passes validation
-# (4 of 5, 8 of 10, 3 of 3). Below that, the batch is retried once. The share is counted
-# against what the model said the PDF supports: when a short PDF only supports 6 of the 10
-# asked for, 5 of those 6 must pass.
+# A quiz is accepted when both hold (see judge()):
+# - at least this share of its questions passes validation (4 of 5, 8 of 10, 3 of 3), counted
+#   against what the model said the PDF supports: when a short PDF only supports 6 of the 10
+#   asked for, 5 of those 6 must pass;
+# - it has at least MIN_QUIZ_QUESTIONS distinct questions (for any request of 3 or more).
+# Otherwise the batches that fall short are retried once, and the best mix of attempts is kept.
 MIN_GOOD_SHARE = 0.8
+MIN_QUIZ_QUESTIONS = 3
 
 # Two questions with nearly the same wording (word by word) count as one.
 DUPLICATE_RATIO = 0.9
@@ -517,104 +521,162 @@ def generate_quiz(lecture_text, question_count=5):
 
     sizes = split_into_batches(question_count)
     ranges = page_ranges(source_pages, len(sizes))
+    smallest = smallest_quiz(question_count)
     deadline = time.monotonic() + GENERATION_BUDGET
 
-    def run(index):
+    def attempt(index, remaining):
         part = None
         if len(sizes) > 1:
             part = (index + 1, len(sizes), question_count, ranges[index] if ranges else None)
-        return _generate_batch(
+        return _attempt_batch(
             api_key=api_key,
             model=model,
             instructions=build_instructions(sizes[index], part),
             lecture_text=lecture_text,
             question_count=sizes[index],
             source_pages=source_pages,
-            deadline=deadline,
+            timeout=min(attempt_timeout(sizes[index]), remaining),
         )
 
-    if len(sizes) == 1:
-        batches = [run(0)]
-    else:
-        # The requests mostly wait on OpenAI, so threads run them side by side.
-        with ThreadPoolExecutor(max_workers=len(sizes)) as pool:
-            batches = list(pool.map(run, range(len(sizes))))
+    def run_round(indexes, remaining):
+        """One attempt for each batch in `indexes`, side by side (they mostly wait on OpenAI)."""
+        if len(indexes) == 1:
+            return {indexes[0]: attempt(indexes[0], remaining)}
+        with ThreadPoolExecutor(max_workers=len(indexes)) as pool:
+            return dict(zip(indexes, pool.map(lambda index: attempt(index, remaining), indexes)))
 
-    insufficient = [b["insufficient"] for b in batches if b["insufficient"]]
-    if len(insufficient) == len(batches):
-        raise insufficient[0]
+    # Round 1: every batch.
+    first = run_round(list(range(len(sizes))), deadline - time.monotonic())
+    if all(first[index]["insufficient"] for index in first):
+        raise first[0]["insufficient"]
+    attempts = [[first[index]] for index in range(len(sizes))]
+    best = choose_attempts(attempts, smallest)
 
-    # The 80% rule, over the whole quiz: of the questions the PDF supports, enough must pass.
-    kept = sum(len(b["questions"]) for b in batches)
-    supported = sum(b["supported"] for b in batches)
-    enough = max(1, math.ceil(supported * MIN_GOOD_SHARE - 1e-9))
-    if kept < enough:
-        errors = [b["error"] for b in batches if b["error"]]
+    # Round 2, once, if the quiz doesn't pass yet: the batches under 80%, or every batch when the
+    # quiz is too small. A batch that said "nothing to ask" or failed with an error isn't retried.
+    if not best["passes"]:
+        retry = [
+            index for index, result in first.items()
+            if not result["insufficient"] and not result["error"]
+            and (not batch_passes(result) or len(best["questions"]) < smallest)
+        ]
+        if retry:
+            remaining = deadline - time.monotonic()
+            if remaining < MIN_RETRY_SECONDS:
+                logger.warning("No time left for a retry (%.0f s): %s", remaining, best["reason"])
+            else:
+                logger.warning("Retrying %s of %s batch(es): %s", len(retry), len(sizes), best["reason"])
+                for index, result in run_round(retry, remaining).items():
+                    attempts[index].append(result)
+                best = choose_attempts(attempts, smallest)
+
+    if not best["passes"]:
+        errors = [result["error"] for result in best["attempts"] if result["error"]]
         if errors:
             raise errors[0]
-        raise QuizValidationError(
-            f"Only {kept} of {supported} generated questions passed validation after a retry."
-        )
+        raise QuizValidationError(best["reason"])
 
-    questions = merge_questions([b["questions"] for b in batches])
+    questions = merge_questions([result["questions"] for result in best["attempts"]])
     if len(questions) < question_count:
         logger.info("Quiz has %s of the %s questions asked for.", len(questions), question_count)
     return shuffle_quiz_options({"questions": questions})
 
 
-def _generate_batch(*, api_key, model, instructions, lecture_text, question_count, source_pages, deadline):
-    """Write one batch, retrying once (if there's time) when too few questions pass.
+def smallest_quiz(question_count):
+    """The fewest distinct questions a quiz may have: 3 for any request of 3 or more."""
+    return MIN_QUIZ_QUESTIONS if question_count >= MIN_QUIZ_QUESTIONS else 1
 
-    Returns {"questions", "supported", "insufficient", "error"}: the best attempt's validated
-    questions; how many questions the model said the PDF supports (it may return fewer than
-    asked for); and the InsufficientContentError or LLMError that stopped the batch, if any.
+
+def _needed(supported):
+    """The 80% rule: how many must pass out of `supported` (4 of 5, 8 of 10, 3 of 3; at least 1)."""
+    return max(1, math.ceil(supported * MIN_GOOD_SHARE - 1e-9))
+
+
+def batch_passes(result):
+    """One attempt of one batch meets the 80% rule on its own."""
+    return len(result["questions"]) >= _needed(result["supported"])
+
+
+def judge(results, smallest):
+    """Would these attempts (one per batch) make an acceptable quiz?
+
+    - 80% rule over the whole quiz: of the questions the model said the PDF supports, enough
+      passed validation. Repeats inside one response count as failures (padding); repeats
+      across batches don't, because parallel requests can't see each other's questions.
+    - Size: after merging and removing repeats, at least `smallest` distinct questions.
     """
-    best, best_supported = None, question_count
-    for attempt in (1, 2):
-        remaining = deadline - time.monotonic()
-        if attempt > 1 and remaining < MIN_RETRY_SECONDS:
-            logger.warning("No time left for a retry (%.0f s); keeping the first attempt.", remaining)
-            break
-        try:
-            data = _request_quiz(
-                api_key=api_key,
-                model=model,
-                instructions=instructions,
-                lecture_text=lecture_text,
-                question_count=question_count,
-                source_pages=source_pages,
-                timeout=min(attempt_timeout(question_count), remaining),
-            )
-            quiz = validate_generation_result(
-                data,
-                question_count=question_count,
-                source_pages=source_pages,
-                min_questions=0,
-            )
-        except InsufficientContentError as problem:
-            if best is None:
-                return {"questions": [], "supported": 0, "insufficient": problem, "error": None}
-            break
-        except LLMError as problem:
-            if best is None:
-                return {"questions": [], "supported": question_count, "insufficient": None, "error": problem}
-            break
-        except QuizValidationError as problem:
-            logger.warning("Quiz generation attempt %s was unusable: %s", attempt, problem)
-            continue
+    valid = sum(len(result["questions"]) for result in results)
+    supported = sum(result["supported"] for result in results)
+    questions = drop_repeats([result["questions"] for result in results])
+    reason = None
+    if valid < _needed(supported):
+        reason = f"Only {valid} of {supported} generated questions passed validation."
+    elif len(questions) < smallest:
+        reason = f"Only {len(questions)} distinct questions; a quiz needs at least {smallest}."
+    return {
+        "attempts": results,
+        "questions": questions,
+        "valid": valid,
+        "passes": reason is None,
+        "reason": reason,
+    }
 
-        supported = min(question_count, len(data["questions"]))
-        if best is None or len(quiz["questions"]) > len(best["questions"]):
-            best, best_supported = quiz, supported
-        if len(best["questions"]) >= max(1, math.ceil(best_supported * MIN_GOOD_SHARE - 1e-9)):
-            break
-        logger.warning(
-            "Quiz generation attempt %s kept %s of %s questions; retrying.",
-            attempt, len(quiz["questions"]), supported,
+
+def choose_attempts(attempts, smallest):
+    """Pick one attempt per batch (attempts[i] lists batch i's attempts) for the best quiz.
+
+    A combination that passes always beats one that doesn't; then more distinct questions,
+    then more valid ones. On a full tie the earlier attempt stays. Every combination is tried
+    (at most 2 batches x 2 attempts), so if any mix of attempts passes, it is the one chosen.
+    """
+    best, best_key = None, None
+    for results in itertools.product(*attempts):
+        verdict = judge(results, smallest)
+        key = (verdict["passes"], len(verdict["questions"]), verdict["valid"])
+        if best is None or key > best_key:
+            best, best_key = verdict, key
+    return best
+
+
+def _attempt_batch(*, api_key, model, instructions, lecture_text, question_count, source_pages, timeout):
+    """One request for one batch.
+
+    Returns {"questions", "supported", "insufficient", "error"}: the questions that passed
+    validation, without repeats inside this response; how many the model said the PDF supports
+    (it may return fewer than asked for); and the InsufficientContentError or LLMError that
+    stopped it, if any. An unusable response (bad JSON, nothing valid) has no questions and
+    counts as supporting all `question_count`, so it fails the 80% rule and is retried.
+    """
+    result = {"questions": [], "supported": question_count, "insufficient": None, "error": None}
+    try:
+        data = _request_quiz(
+            api_key=api_key,
+            model=model,
+            instructions=instructions,
+            lecture_text=lecture_text,
+            question_count=question_count,
+            source_pages=source_pages,
+            timeout=timeout,
         )
+        quiz = validate_generation_result(
+            data,
+            question_count=question_count,
+            source_pages=source_pages,
+            min_questions=0,
+        )
+    except InsufficientContentError as problem:
+        return {**result, "supported": 0, "insufficient": problem}
+    except LLMError as problem:
+        return {**result, "error": problem}
+    except QuizValidationError as problem:
+        logger.warning("A quiz generation attempt was unusable: %s", problem)
+        return result
 
-    questions = best["questions"] if best else []
-    return {"questions": questions, "supported": best_supported, "insufficient": None, "error": None}
+    return {
+        **result,
+        "questions": drop_repeats([quiz["questions"]], log=True),
+        "supported": min(question_count, len(data["questions"])),
+    }
 
 
 def _question_key(question):
@@ -640,17 +702,23 @@ def _is_repeat(key, other):
     return _similar(words, other_words, DUPLICATE_RATIO) and _similar(answer, other_answer, 0.8)
 
 
-def merge_questions(batches):
-    """Join the batches in order, drop repeats (_is_repeat), and number the questions 1..N."""
-    merged, seen = [], []
+def drop_repeats(batches, log=False):
+    """The questions of all batches in order, without repeats (_is_repeat). Doesn't renumber."""
+    kept, seen = [], []
     for question in (q for batch in batches for q in batch):
         key = _question_key(question)
         if any(_is_repeat(key, other) for other in seen):
-            logger.warning("Dropped a repeated question: %s", question["question"])
+            if log:
+                logger.warning("Dropped a repeated question: %s", question["question"])
             continue
         seen.append(key)
-        merged.append(question)
+        kept.append(question)
+    return kept
 
+
+def merge_questions(batches):
+    """Join the batches in order, drop repeats, and number the questions 1..N."""
+    merged = drop_repeats(batches, log=True)
     for new_id, question in enumerate(merged, start=1):
         question["id"] = new_id
     return merged
