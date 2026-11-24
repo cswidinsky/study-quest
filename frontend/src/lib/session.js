@@ -5,7 +5,8 @@ import { isWeak } from './selectors.js'
 // options). It needs the answer key to shuffle, so only the mock server
 // (src/mocks/server.js) uses it. Flask should do the same when it creates a session.
 //   kind 'due'     → every card due today, across all decks (exam decks first)
-//   kind 'deck'    → one deck: its due cards, then up to 10 new ones;
+//   kind 'deck'    → one deck: its due cards, then up to 10 new ones (an unmarked live quiz
+//                    always comes whole, up to 20);
 //                    if neither, a practice run of the whole deck (no XP)
 //   kind 'rematch' → your weak spots (or the specific card ids you pass)
 
@@ -52,8 +53,12 @@ export function buildSession({ kind, deckId, cardIds, cards, decks, now = Date.n
     const deck = deckById.get(deckId)
     const own = cards.filter((c) => c.deckId === deckId)
     const due = shuffle(own.filter((c) => isDue(c, now)))
-    const fresh = own.filter(isNewCard).slice(0, MAX_NEW)
-    const chosen = [...due, ...fresh].slice(0, MAX_CARDS)
+    // A live quiz Flask hasn't marked yet is submitted all at once, so all of its questions
+    // (up to 20) come together, ahead of the 10-new-card limit; due cards fill the room left.
+    const unmarked = own.filter((c) => c.remote && c.correctIndex == null && isNewCard(c))
+    const fresh = own.filter((c) => isNewCard(c) && !unmarked.includes(c)).slice(0, Math.max(0, MAX_NEW - unmarked.length))
+    const room = Math.max(0, MAX_CARDS - unmarked.length)
+    const chosen = [...[...due, ...fresh].slice(0, room), ...unmarked]
     if (chosen.length) {
       return { kind, deck, title: deck?.title ?? 'Deck', practice: false, items: chosen.map(toItem) }
     }

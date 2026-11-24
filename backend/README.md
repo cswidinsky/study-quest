@@ -167,8 +167,11 @@ Send a short synthetic lecture sample:
 .\.venv\Scripts\python.exe -m backend.check_quiz --pdf "C:\path\lecture.pdf" --questions 5
 ```
 
-The question count defaults to 5 and accepts integers from 1 to 10.
-Use `--questions 10` to check the upper limit with a detailed lecture PDF.
+The question count defaults to 5 and accepts integers from 1 to 20.
+Up to 10 questions come from one OpenAI request; more are written by parallel
+requests of at most 10 (20 → 10 + 10, 15 → 8 + 7), each steered to its own run
+of pages, then merged, de-duplicated and numbered 1..N.
+Use `--questions 20` to check the upper limit with a detailed lecture PDF.
 
 Only send documents you have permission to share with the provider.
 Keep private PDFs and generated output out of Git.
@@ -201,6 +204,10 @@ duplicate questions/options, and whether referenced page numbers exist.
 It checks that each source snippet appears on the cited page after
 collapsing whitespace to account for PDF line breaks.
 Options are shuffled while preserving the answer key.
+
+A batch is retried once (if the time budget allows) when fewer than 80% of its
+questions pass. The share is counted against what the model says the PDF
+supports, so a short PDF returns as many good questions as it has (12 of 20).
 
 The model may report insufficient content instead of generating a quiz.
 The command then displays an explanatory error and exits unsuccessfully.

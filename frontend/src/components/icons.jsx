@@ -30,6 +30,12 @@ export const PlusIcon = (p) => (
   </Icon>
 )
 
+export const MinusIcon = (p) => (
+  <Icon {...p}>
+    <path d="M5 12h14" />
+  </Icon>
+)
+
 export const MenuIcon = (p) => (
   <Icon {...p}>
     <path d="M4 8h16M4 16h16" />

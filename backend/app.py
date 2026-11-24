@@ -9,7 +9,7 @@ from flask import Flask, jsonify, make_response, request
 
 from backend.services.llm import LLMError
 from backend.services.pdf_extraction import extract_pdf_text
-from backend.services.quiz_generation import QuizValidationError, generate_quiz
+from backend.services.quiz_generation import MAX_QUESTIONS, QuizValidationError, generate_quiz
 from backend.services.quiz_store import InvalidSessionError, QuizStore, QuizStoreError
 
 load_dotenv()
@@ -91,7 +91,7 @@ def require_quiz_user(route):
     return protected_route
 
 
-# How many questions to ask for: the form field "question_count", clamped to 1–10 (default 5).
+# How many questions to ask for: the form field "question_count", clamped to 1–MAX_QUESTIONS (20; default 5).
 DEFAULT_QUESTION_COUNT = 5
 
 
@@ -100,7 +100,7 @@ def requested_question_count(raw):
         count = int(str(raw).strip())
     except (TypeError, ValueError):
         return DEFAULT_QUESTION_COUNT
-    return max(1, min(10, count))
+    return max(1, min(MAX_QUESTIONS, count))
 
 
 @app.post("/api/quizzes")
