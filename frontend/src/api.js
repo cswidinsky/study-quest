@@ -188,10 +188,11 @@ export function getCardAnswer(cardId) {
 
 // TODO(backend): POST /api/decks/generate (multipart: file, title, course, questionCount) → { jobId },
 // then poll GET /api/jobs/:id → { status, stageIndex, progress, result: { deck, cards } }
-// Live: POST /api/quizzes (multipart "file") → { id, questions: [{ id, text, choices, difficulty }] }.
-// Flask asks the AI for 5 and returns the ones it could check against the PDF (at least 4), so the
-// deck has however many questions it returns. Progress is shown as steady steps that hold at 92%
-// until the server answers (a real request can't report its progress).
+// Live: POST /api/quizzes (multipart "file", "question_count") → { id, requested, questions }.
+// Flask asks the AI for the chosen count (3, 5 or 10) and returns the ones it could check against
+// the PDF (at least 80% of them), so the deck has however many come back; the result carries
+// `requested` so the ready screen can say "We made 4 of 5". Progress is shown as steady steps that
+// hold at 92% until the server answers (a real request can't report its progress).
 export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) {
   if (isLive()) return generateWithFlask(file, options, { onProgress, signal })
   return new Promise((resolve, reject) => {
@@ -230,7 +231,9 @@ export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) 
 }
 
 async function generateWithFlask(file, options, { onProgress, signal }) {
-  const total = generationStages.reduce((sum, stage) => sum + stage.ms, 0) * 2.5 // real runs take longer
+  const count = options.questionCount ?? 5
+  // Real runs take longer, and more questions take longer still.
+  const total = generationStages.reduce((sum, stage) => sum + stage.ms, 0) * 2.5 * Math.max(1, count / 5)
   const start = performance.now()
   const timer = setInterval(() => {
     const progress = Math.min(0.92, (performance.now() - start) / total)
@@ -238,9 +241,10 @@ async function generateWithFlask(file, options, { onProgress, signal }) {
     onProgress?.({ stageIndex, progress })
   }, 100)
   try {
-    const quiz = await flask.createQuiz(file, { signal })
+    const quiz = await flask.createQuiz(file, { signal, questionCount: count })
     onProgress?.({ stageIndex: generationStages.length - 1, progress: 1 })
-    return server.saveFlaskDeck({ quiz, fileName: file.name, title: options.title, course: options.course })
+    const saved = server.saveFlaskDeck({ quiz, fileName: file.name, title: options.title, course: options.course })
+    return { ...saved, requested: quiz.requested ?? count }
   } finally {
     clearInterval(timer)
   }

@@ -10,7 +10,9 @@ import { ArrowRightIcon } from '../../components/icons.jsx'
 // The new deck lands: it drops in from above in its own colour, with a flash of light.
 // Its card shares a transition name with its dashboard card, so "Back to dashboard"
 // flies it straight into its place in the grid.
-export default function DeckReady({ deck, cards, onAnother }) {
+// `requested`: how many questions were asked for (live PDF decks). Some can be dropped when they
+// fail the check against the PDF; then a small note says how many were made.
+export default function DeckReady({ deck, cards, requested, onAnother }) {
   const headingRef = useRef(null)
   const reduce = useReducedMotion()
   const rise = useRise(14)
@@ -35,6 +37,11 @@ export default function DeckReady({ deck, cards, onAnother }) {
             Your deck is ready
           </h2>
           <p className="truncate text-sm text-muted">{fromPdf ? `Written from ${deck.source.fileName}` : 'Written by you'}</p>
+          {fromPdf && requested > cards.length && (
+            <p className="mt-0.5 text-sm text-muted">
+              We made <span className="num text-text">{cards.length}</span> of <span className="num">{requested}</span> questions from this PDF.
+            </p>
+          )}
         </div>
       </div>
 

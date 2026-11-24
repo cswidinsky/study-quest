@@ -257,8 +257,8 @@ LECTURE_PAGES = {
 LECTURE_TEXT = "\n\n".join(f"--- Page {n} ---\n{text}" for n, text in LECTURE_PAGES.items())
 
 
-def five_questions(bad_ids=()):
-    """Five valid questions; the ids in bad_ids get a snippet that isn't in the lecture."""
+def five_questions(bad_ids=(), count=5):
+    """`count` valid questions (default five); the ids in bad_ids get a snippet that isn't in the lecture."""
     snippets = [
         (1, "Passive transport follows a concentration gradient."),
         (2, "Osmosis is the movement of water"),
@@ -267,7 +267,8 @@ def five_questions(bad_ids=()):
         (3, "move solutes against their gradient"),
     ]
     questions = []
-    for number, (page, snippet) in enumerate(snippets, start=1):
+    for number in range(1, count + 1):
+        page, snippet = snippets[(number - 1) % len(snippets)]
         questions.append({
             "id": number,
             "question": f"Question number {number}?",
@@ -283,7 +284,7 @@ def five_questions(bad_ids=()):
 
 
 class TestGenerationKeepsGoodQuestions(unittest.TestCase):
-    def generate(self, *responses):
+    def generate(self, *responses, count=5):
         with (
             patch.dict(os.environ, {"LLM_API_KEY": "test-only-key"}),
             patch("backend.services.quiz_generation.OpenAI") as factory,
@@ -293,9 +294,46 @@ class TestGenerationKeepsGoodQuestions(unittest.TestCase):
                 SimpleNamespace(status="completed", output_text=json.dumps(r)) for r in responses
             ]
             try:
-                return generate_quiz(LECTURE_TEXT, question_count=5)
+                return generate_quiz(LECTURE_TEXT, question_count=count)
             finally:
                 self.calls = client.responses.create.call_count
+                self.timeouts = [c.kwargs["timeout"] for c in factory.call_args_list]
+
+    def test_ten_questions_keep_eight_without_retry(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={4, 9}, count=10), count=10)
+
+        self.assertEqual(self.calls, 1)  # 8 of 10 is 80%: enough
+        self.assertEqual(len(result["questions"]), 8)
+
+    def test_ten_questions_retry_below_eighty_percent(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={1, 2, 3}, count=10), five_questions(count=10), count=10)
+
+        self.assertEqual(self.calls, 2)  # 7 of 10 is too few
+        self.assertEqual(len(result["questions"]), 10)
+
+    def test_three_questions_need_all_three(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={2}, count=3), five_questions(count=3), count=3)
+
+        self.assertEqual(self.calls, 2)  # 2 of 3 is under 80%
+        self.assertEqual(len(result["questions"]), 3)
+
+    def test_more_questions_get_more_time(self):
+        self.generate(five_questions(count=10), count=10)
+        self.assertEqual(self.timeouts, [120.0])
+        self.generate(five_questions(), count=5)
+        self.assertEqual(self.timeouts, [70.0])
+
+    def test_no_retry_when_the_time_budget_is_used_up(self):
+        clock = iter([0.0, 0.0, 230.0])  # deadline set, attempt 1 starts, attempt 1 took 230 s
+        with patch("backend.services.quiz_generation.time.monotonic", side_effect=lambda: next(clock)):
+            with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+                with self.assertRaises(QuizValidationError):
+                    self.generate(five_questions(bad_ids={1, 2, 3}), five_questions())
+
+        self.assertEqual(self.calls, 1)
 
     def test_one_bad_question_out_of_five_is_dropped(self):
         with self.assertLogs("backend.services.quiz_generation", level="WARNING"):

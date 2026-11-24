@@ -88,10 +88,14 @@ export async function health() {
 
 const quizPath = (quizId) => `/api/quizzes/${encodeURIComponent(quizId)}`
 
-// POST /api/quizzes (multipart field "file") → { id, questions: [{ id, text, choices, difficulty }] }
-export function createQuiz(file, { signal } = {}) {
+// POST /api/quizzes (multipart: "file", "question_count" 1–10)
+//   → { id, requested, questions: [{ id, text, choices, difficulty }] }
+// `requested` is how many were asked for; fewer can come back (questions that fail the check
+// against the PDF are dropped, and Flask accepts the quiz when at least 80% survive).
+export function createQuiz(file, { signal, questionCount = 5 } = {}) {
   const form = new FormData()
   form.append('file', file)
+  form.append('question_count', String(questionCount))
   return request('/api/quizzes', { method: 'POST', body: form, signal })
 }
 
