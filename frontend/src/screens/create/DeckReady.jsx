@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { XP_RULES } from '../../lib/levels.js'
+import { play } from '../../lib/sound.js'
 import { EASE_CINEMA, stagger, useRise } from '../../lib/motion.js'
 import { deckStyle, deckTransitionStyle } from '../../lib/deck.js'
 import Button from '../../components/Button.jsx'
@@ -13,7 +14,10 @@ export default function DeckReady({ deck, cards, onAnother }) {
   const headingRef = useRef(null)
   const reduce = useReducedMotion()
   const rise = useRise(14)
-  useEffect(() => headingRef.current?.focus(), [])
+  useEffect(() => {
+    headingRef.current?.focus()
+    play('ready', { delay: 0.25 }) // as the deck lands
+  }, [])
 
   const fromPdf = deck.source.type === 'pdf'
   const preview = cards.slice(0, 3)

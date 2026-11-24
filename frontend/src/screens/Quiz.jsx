@@ -183,6 +183,7 @@ function QuizRun({ initialSession }) {
   const submitQuiz = useCallback(async () => {
     if (submitting) return
     setSubmitting(true)
+    play('submit')
     setGradingError(null)
     try {
       const { graded: results, quizzes } = await finishSession(session.sessionId)
@@ -232,7 +233,6 @@ function QuizRun({ initialSession }) {
       setBestCombo((b) => Math.max(b, best))
       setMissed(missedNow)
       setPicks({})
-      play('results')
       setPhase(missedNow.length ? 'rematch-break' : 'results')
     } catch (error) {
       setGradingError(error.message)

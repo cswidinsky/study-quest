@@ -11,6 +11,14 @@ import { splitName } from './auth.js'
 // (real data or Demo mode), so state can never carry over from one to the other.
 //   userId, joinedAt: the Supabase user     fullName: from their profile
 //   demo, setDemo:    Demo mode             notice, clearNotice: a message to show once
+// Saved device settings, with sound ON for anyone who never used a sound toggle. Older saves
+// stored sound: false just because that was the default then, so only an explicit choice counts.
+function withSoundDefault(saved) {
+  const settings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) }
+  if (!settings.soundChosen) settings.sound = true
+  return settings
+}
+
 export default function GameProvider({ userId, joinedAt, fullName, demo = false, setDemo, notice, clearNotice, children }) {
   const [state, dispatch] = useReducer(reducer, initialState)
 
@@ -28,7 +36,7 @@ export default function GameProvider({ userId, joinedAt, fullName, demo = false,
       })
       if (!opened) return // a newer load took over
       const data = await api.getDashboard()
-      dispatch({ type: 'load/success', data: { ...data, settings: { ...DEFAULT_SETTINGS, ...loadSettings() } } })
+      dispatch({ type: 'load/success', data: { ...data, settings: withSoundDefault(loadSettings()) } })
     } catch (error) {
       dispatch({ type: 'load/error', error: error.message })
     }

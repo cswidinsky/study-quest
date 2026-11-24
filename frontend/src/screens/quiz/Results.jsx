@@ -40,8 +40,16 @@ export default function Results({ log, graded = null, deck = null, bestCombo, de
   ]
   const headline = score === 100 ? 'Flawless.' : score >= 80 ? 'Sharp session.' : score >= 50 ? 'Solid work.' : 'Good practice.'
 
+  // Sounds, once: the XP lands, then today's flame lights up (if this session lit it).
+  const sounded = useRef(false)
   useEffect(() => {
-    play('results')
+    if (sounded.current) return
+    sounded.current = true
+    play('xp', { delay: 0.35 })
+    if (streakLitNow) play('streak', { delay: 0.9 })
+  }, [streakLitNow])
+
+  useEffect(() => {
     if (score < 80 || reduce) return
     const t = setTimeout(() => {
       const r = ringRef.current?.getBoundingClientRect()
