@@ -2,13 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <title>StudyQuest — Turn lecture PDFs into quizzes</title>
+    <meta name="description" content="StudyQuest turns your lecture PDFs into quizzes written from your own notes. Earn XP, keep your streak, level up, and remember it for the exam. Free to use." />
+    <link rel="canonical" href="https://www.studyquest.co/" />
+
+    <!-- Favicons (Google wants a size that's a multiple of 48px; the .ico holds 16, 32 and 48). -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/svg+xml" href="/brand/studyquest-icon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/studyquest-icon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/brand/studyquest-icon-48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/brand/studyquest-icon-96.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand/studyquest-icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/brand/studyquest-icon-180.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <!-- Brand orange: the side stripe on Discord link previews (and the phone browser bar). -->
     <meta name="theme-color" content="#FF6B2C" />
-    <meta name="description" content="Turn your lecture PDFs into quizzes. Earn XP, keep your streak, and remember it for the exam." />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <!-- Link previews (Open Graph: Discord, iMessage, LinkedIn, Facebook…). URLs must be absolute. -->
@@ -30,8 +38,35 @@
     <meta name="twitter:description" content="Turn your lecture PDFs into quizzes. Earn XP, keep your streak, and remember it for the exam." />
     <meta name="twitter:image" content="https://www.studyquest.co/og-image.png" />
     <meta name="twitter:image:alt" content="StudyQuest logo next to the line “Your notes, played as a game.”" />
-    <link rel="canonical" href="https://www.studyquest.co" />
-    <title>StudyQuest</title>
+
+    <!-- Structured data: lets Google show our site name ("StudyQuest") and logo in results. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://www.studyquest.co/#website",
+            "name": "StudyQuest",
+            "alternateName": ["Study Quest"],
+            "url": "https://www.studyquest.co/",
+            "publisher": { "@id": "https://www.studyquest.co/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://www.studyquest.co/#organization",
+            "name": "StudyQuest",
+            "url": "https://www.studyquest.co/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://www.studyquest.co/brand/studyquest-icon-512.png",
+              "width": 512,
+              "height": 512
+            }
+          }
+        ]
+      }
+    </script>
 
     <!-- Fonts: Geist (UI) and Geist Mono (numbers) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

@@ -1,0 +1,5 @@
+# StudyQuest: everything public may be crawled.
+User-agent: *
+Allow: /
+
+Sitemap: https://www.studyquest.co/sitemap.xml
