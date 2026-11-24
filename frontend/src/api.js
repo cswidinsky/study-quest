@@ -189,9 +189,9 @@ export function getCardAnswer(cardId) {
 // TODO(backend): POST /api/decks/generate (multipart: file, title, course, questionCount) → { jobId },
 // then poll GET /api/jobs/:id → { status, stageIndex, progress, result: { deck, cards } }
 // Live: POST /api/quizzes (multipart "file", "question_count") → { id, requested, questions }.
-// Flask asks the AI for the chosen count (3, 5 or 10) and returns the ones it could check against
-// the PDF (at least 80% of them), so the deck has however many come back; the result carries
-// `requested` so the ready screen can say "We made 4 of 5". Progress is shown as steady steps that
+// Flask asks the AI for the chosen count (3 to 20) and returns the ones it could check against the
+// PDF (a short PDF may support fewer), so the deck has however many come back; the result carries
+// `requested` so the ready screen can say "We made 12 of 20". Progress is shown as steady steps that
 // hold at 92% until the server answers (a real request can't report its progress).
 export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) {
   if (isLive()) return generateWithFlask(file, options, { onProgress, signal })
@@ -232,8 +232,10 @@ export function generateDeckFromPdf(file, options, { onProgress, signal } = {}) 
 
 async function generateWithFlask(file, options, { onProgress, signal }) {
   const count = options.questionCount ?? 5
-  // Real runs take longer, and more questions take longer still.
-  const total = generationStages.reduce((sum, stage) => sum + stage.ms, 0) * 2.5 * Math.max(1, count / 5)
+  // Real runs take longer, and more questions take longer still. Over 10, Flask writes batches of
+  // up to 10 side by side, so 20 questions take only a little longer than 10.
+  const perBatch = Math.min(count, 10) / 5
+  const total = generationStages.reduce((sum, stage) => sum + stage.ms, 0) * 2.5 * Math.max(1, perBatch) * (count > 10 ? 1.15 : 1)
   const start = performance.now()
   const timer = setInterval(() => {
     const progress = Math.min(0.92, (performance.now() - start) / total)

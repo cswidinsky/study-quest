@@ -257,7 +257,9 @@ class TestQuizRoutes(unittest.TestCase):
         self.assertEqual(len(self.attempts), 1)
 
     def test_question_count_is_sent_to_generation_and_clamped(self):
-        for raw, expected in (("10", 10), ("3", 3), ("99", 10), ("0", 1), ("abc", 5), (None, 5)):
+        for raw, expected in (
+            ("10", 10), ("3", 3), ("15", 15), ("20", 20), ("99", 20), ("0", 1), ("abc", 5), (None, 5)
+        ):
             with self.subTest(raw=raw), patch(
                 "backend.app.generate_quiz", return_value={"questions": [self.question]}
             ) as generate:

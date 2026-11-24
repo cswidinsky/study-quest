@@ -2,6 +2,8 @@ import copy
 import unittest
 import json
 import os
+import re
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -11,7 +13,10 @@ from backend.services.llm import LLMError
 from backend.services.quiz_generation import (
     QuizValidationError,
     generate_quiz,
+    merge_questions,
+    page_ranges,
     shuffle_quiz_options,
+    split_into_batches,
     validate_quiz,
     InsufficientContentError,
     validate_generation_result,
@@ -257,8 +262,11 @@ LECTURE_PAGES = {
 LECTURE_TEXT = "\n\n".join(f"--- Page {n} ---\n{text}" for n, text in LECTURE_PAGES.items())
 
 
-def five_questions(bad_ids=(), count=5):
-    """`count` valid questions (default five); the ids in bad_ids get a snippet that isn't in the lecture."""
+def five_questions(bad_ids=(), count=5, first=1):
+    """`count` valid questions (default five); the ids in bad_ids get a snippet that isn't in the lecture.
+
+    Their text is numbered from `first` ("Question number 11?"), so batches can be told apart.
+    """
     snippets = [
         (1, "Passive transport follows a concentration gradient."),
         (2, "Osmosis is the movement of water"),
@@ -269,18 +277,29 @@ def five_questions(bad_ids=(), count=5):
     questions = []
     for number in range(1, count + 1):
         page, snippet = snippets[(number - 1) % len(snippets)]
+        label = first + number - 1
         questions.append({
             "id": number,
-            "question": f"Question number {number}?",
-            "options": [f"Right {number}", f"Wrong A{number}", f"Wrong B{number}", f"Wrong C{number}"],
+            "question": f"Question number {label}?",
+            "options": [f"Right {label}", f"Wrong A{label}", f"Wrong B{label}", f"Wrong C{label}"],
             "correctIndex": 0,
             "difficulty": "easy",
-            "explanation": f"Explanation {number}.",
+            "explanation": f"Explanation {label}.",
             "sourcePage": page,
             "sourceSnippet": "This sentence is not in the PDF." if number in bad_ids else snippet,
             "topic": "Transport",
         })
     return {"status": "ready", "reason": None, "questions": questions}
+
+
+def repeated_questions(count, first=1):
+    """`count` valid questions with different wording that all ask the same thing: same quote,
+    same correct answer. Only one of them survives repeat removal."""
+    quiz = five_questions(count=count, first=first)
+    for q in quiz["questions"]:
+        q["sourcePage"], q["sourceSnippet"] = 1, "Passive transport follows a concentration gradient."
+        q["options"][0] = "Down the concentration gradient"
+    return quiz
 
 
 class TestGenerationKeepsGoodQuestions(unittest.TestCase):
@@ -360,12 +379,286 @@ class TestGenerationKeepsGoodQuestions(unittest.TestCase):
         self.assertEqual(self.calls, 2)
         self.assertEqual(len(result["questions"]), 5)
 
+    # Review of PR #44, fix 1: a quiz needs at least 3 distinct questions (any request of 3+).
+
+    def test_three_asked_one_returned_retries_then_fails(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaisesRegex(QuizValidationError, "needs at least 3"):
+                self.generate(five_questions(count=1), five_questions(count=1), count=3)
+
+        self.assertEqual(self.calls, 2)  # 1 of 1 passes the 80% rule, but 1 question is too few
+
+    def test_three_asked_one_returned_then_three_on_retry(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(count=1), five_questions(count=3), count=3)
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(len(result["questions"]), 3)
+
+    def test_three_valid_questions_that_repeat_each_other_count_as_one(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaises(QuizValidationError):
+                self.generate(repeated_questions(3), repeated_questions(3), count=3)
+
+        self.assertEqual(self.calls, 2)
+
+    def test_repeats_inside_one_response_count_against_the_eighty_percent_rule(self):
+        # 5 valid, but 3 of them are the same question: 3 distinct of 5 is under 80%.
+        padded = five_questions()
+        padded["questions"][2:] = repeated_questions(3, first=3)["questions"]
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(padded, five_questions())
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(len(result["questions"]), 5)
+
+    def test_one_or_two_asked_need_only_one(self):
+        # The 3-question minimum is for requests of 3 or more (the app asks for 3 to 20).
+        result = self.generate(five_questions(count=1), count=2)
+        self.assertEqual(self.calls, 1)
+        self.assertEqual(len(result["questions"]), 1)
+
+    # Review of PR #44, fix 2: an attempt that passes beats one that doesn't, even with fewer
+    # questions; the number of valid questions only breaks ties.
+
+    def test_a_retry_that_passes_is_kept_on_a_tie(self):
+        # First: 7 of 10 valid (fails). Retry: the model says the PDF supports 7, all valid (passes).
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={1, 2, 3}, count=10), five_questions(count=7), count=10)
+
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(sorted(q["question"] for q in result["questions"]), sorted(f"Question number {n}?" for n in range(1, 8)))
+
+    def test_a_passing_attempt_beats_a_failing_one_with_more_questions(self):
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(five_questions(bad_ids={1, 2, 3}, count=10), five_questions(count=6), count=10)
+
+        self.assertEqual(len(result["questions"]), 6)
+
+    def test_no_quiz_when_neither_attempt_passes(self):
+        # 2 of 3 fails the 80% rule; the retry's 1 of 1 fails the 3-question minimum.
+        # Neither passes, so there's no 1- or 2-question quiz: the friendly error instead.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaises(QuizValidationError):
+                self.generate(five_questions(bad_ids={2}, count=3), five_questions(count=1), count=3)
+
+        self.assertEqual(self.calls, 2)
+
     def test_fails_only_if_retry_is_still_too_short(self):
         with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
             with self.assertRaises(QuizValidationError):
                 self.generate(five_questions(bad_ids={1, 2, 3}), five_questions(bad_ids={2, 4}))
 
         self.assertEqual(self.calls, 2)
+
+
+INSUFFICIENT = {"status": "insufficient_content", "reason": "Nothing more to ask.", "questions": []}
+
+
+class TestBatchSplitting(unittest.TestCase):
+    def test_batches_hold_at_most_ten_and_are_balanced(self):
+        cases = {1: [1], 3: [3], 10: [10], 11: [6, 5], 15: [8, 7], 19: [10, 9], 20: [10, 10]}
+        for count, sizes in cases.items():
+            with self.subTest(count=count):
+                self.assertEqual(split_into_batches(count), sizes)
+
+    def test_pages_are_shared_between_batches(self):
+        self.assertEqual(page_ranges([1, 2, 3], 2), [(1, 2), (3, 3)])
+        self.assertEqual(page_ranges(range(1, 13), 2), [(1, 6), (7, 12)])
+        self.assertIsNone(page_ranges([4], 2))  # one page can't be split
+        self.assertIsNone(page_ranges([1, 2, 3], 1))
+
+
+class TestLargeQuizzesAreWrittenInBatches(unittest.TestCase):
+    """Over ten questions: parallel requests of at most ten, merged into one quiz."""
+
+    def generate(self, parts, count=20, parallel=True):
+        """parts maps a part number (1, 2) to the responses its requests get, in order."""
+        queues = {part: list(responses) for part, responses in parts.items()}
+        barrier = threading.Barrier(len(parts), timeout=5)
+        lock = threading.Lock()
+        self.requests = []
+
+        def create(**request):
+            part = int(re.search(r"PART (\d+) OF", request["instructions"]).group(1))
+            with lock:
+                self.requests.append((part, request))
+                first_call = sum(1 for p, _ in self.requests if p == part) == 1
+                response = queues[part].pop(0)
+            if parallel and first_call:
+                barrier.wait()  # every part's first request is in flight at the same time
+            return SimpleNamespace(status="completed", output_text=json.dumps(response))
+
+        with (
+            patch.dict(os.environ, {"LLM_API_KEY": "test-only-key"}),
+            patch("backend.services.quiz_generation.OpenAI") as factory,
+        ):
+            factory.return_value.__enter__.return_value.responses.create.side_effect = create
+            try:
+                return generate_quiz(LECTURE_TEXT, question_count=count)
+            finally:
+                self.timeouts = sorted(c.kwargs["timeout"] for c in factory.call_args_list)
+
+    def calls(self, part=None):
+        return sum(1 for p, _ in self.requests if part in (None, p))
+
+    def test_twenty_questions_come_from_two_parallel_batches_of_ten(self):
+        result = self.generate({1: [five_questions(count=10)], 2: [five_questions(count=10, first=11)]})
+
+        questions = result["questions"]
+        self.assertEqual(len(questions), 20)
+        self.assertEqual([q["id"] for q in questions], list(range(1, 21)))
+        self.assertCountEqual([q["question"] for q in questions], [f"Question number {n}?" for n in range(1, 21)])
+        for q in questions:  # answers survive the merge and the shuffle
+            self.assertEqual(q["options"][q["correctIndex"]], q["question"].replace("Question number ", "Right ").rstrip("?"))
+
+        self.assertEqual(self.calls(), 2)
+        for _, request in self.requests:
+            self.assertEqual(request["text"]["format"]["schema"]["properties"]["questions"]["maxItems"], 10)
+        self.assertEqual(self.timeouts, [120.0, 120.0])  # each batch gets a ten-question timeout
+
+    def test_each_batch_is_pointed_at_its_own_pages(self):
+        self.generate({1: [five_questions(count=8)], 2: [five_questions(count=7, first=9)]}, count=15)
+
+        instructions = {part: request["instructions"] for part, request in self.requests}
+        self.assertIn("8 of the quiz's 15 questions", instructions[1])
+        self.assertIn("pages 1-2", instructions[1])
+        self.assertIn("7 of the quiz's 15 questions", instructions[2])
+        self.assertIn("page 3.", instructions[2])
+
+    def test_repeats_across_batches_are_dropped_and_ids_renumbered(self):
+        second = five_questions(count=10, first=11)
+        second["questions"][0] = dict(five_questions(count=1)["questions"][0])  # batch 1's first question again
+        second["questions"][1]["question"] = "Question number 2?"  # same wording as batch 1's second
+
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({1: [five_questions(count=10)], 2: [second]})
+
+        texts = [q["question"] for q in result["questions"]]
+        self.assertEqual(len(texts), 18)
+        self.assertEqual(len(set(texts)), 18)
+        self.assertEqual([q["id"] for q in result["questions"]], list(range(1, 19)))
+        self.assertEqual(self.calls(), 2)  # repeats aren't a reason to retry
+
+    def test_similar_wording_with_a_different_answer_is_not_a_repeat(self):
+        def question(text, answer, snippet):
+            return {"question": text, "options": [answer, "x", "y", "z"], "correctIndex": 0, "sourceSnippet": snippet}
+
+        stem = "Which of the following best describes {} conditioning according to the lecture?"
+        kept = merge_questions([
+            [question(stem.format("classical"), "Learning by pairing two stimuli", "Pavlov paired a bell with food")],
+            [
+                question(stem.format("operant"), "Learning from consequences", "Skinner rewarded lever presses"),
+                # Reworded repeat of the first one, quoting another line, same answer: dropped.
+                question(stem.format("classical") + " Explain", "Learning by pairing two stimuli", "Classical conditioning pairs stimuli"),
+            ],
+        ])
+        self.assertEqual([q["id"] for q in kept], [1, 2])
+        self.assertIn("operant", kept[1]["question"])
+
+    def test_a_short_pdf_returns_as_many_good_questions_as_it_can(self):
+        # The model says each half of the PDF only supports six questions: 12 of 20, no retries.
+        result = self.generate({1: [five_questions(count=6)], 2: [five_questions(count=6, first=11)]})
+
+        self.assertEqual(len(result["questions"]), 12)
+        self.assertEqual([q["id"] for q in result["questions"]], list(range(1, 13)))
+        self.assertEqual(self.calls(), 2)
+
+    def test_a_batch_with_nothing_left_to_ask_is_skipped(self):
+        result = self.generate({1: [five_questions(count=10)], 2: [INSUFFICIENT]}, parallel=False)
+
+        self.assertEqual(len(result["questions"]), 10)
+        self.assertEqual(self.calls(), 2)
+
+    def test_every_batch_insufficient_means_insufficient_content(self):
+        with self.assertRaises(InsufficientContentError):
+            self.generate({1: [INSUFFICIENT], 2: [INSUFFICIENT]}, parallel=False)
+
+    def test_only_the_batch_below_eighty_percent_retries(self):
+        # 10 + 5 = 15 of 20 fails the quiz's 80% rule; only batch 2 (5 of 10) asks again.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({
+                1: [five_questions(count=10)],
+                2: [five_questions(bad_ids={1, 2, 3, 4, 5}, count=10, first=11), five_questions(count=10, first=11)],
+            })
+
+        self.assertEqual(self.calls(1), 1)
+        self.assertEqual(self.calls(2), 2)
+        self.assertEqual(len(result["questions"]), 20)
+
+    def test_no_retry_when_the_whole_quiz_already_passes(self):
+        # Batch 2 keeps only 7 of 10, but 17 of 20 passes: no extra wait for a retry.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({1: [five_questions(count=10)], 2: [five_questions(bad_ids={1, 2, 3}, count=10, first=11)]})
+
+        self.assertEqual(self.calls(), 2)
+        self.assertEqual(len(result["questions"]), 17)
+
+    def test_eighty_percent_rule_counts_the_whole_quiz(self):
+        # Batch 2 keeps 7 of 10 even after its retry: 17 of 20 is still 85%, so the quiz is kept.
+        bad = {1, 2, 3}
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({
+                1: [five_questions(count=10)],
+                2: [five_questions(bad_ids=bad, count=10, first=11), five_questions(bad_ids=bad, count=10, first=11)],
+            })
+        self.assertEqual(len(result["questions"]), 17)
+
+        # Both batches keep 7 of 10 twice: 14 of 20 is under 80%, so there's no quiz.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            with self.assertRaises(QuizValidationError):
+                self.generate({
+                    1: [five_questions(bad_ids=bad, count=10), five_questions(bad_ids=bad, count=10)],
+                    2: [five_questions(bad_ids=bad, count=10, first=11), five_questions(bad_ids=bad, count=10, first=11)],
+                })
+
+    def test_the_best_mix_of_attempts_is_chosen_across_batches(self):
+        # Batch 2's first try keeps 5 of 10, its retry 4 of 7: neither passes on its own, and the
+        # retry has fewer questions. But 10 + 4 = 14 of 17 passes the quiz's 80% rule, while
+        # 10 + 5 = 15 of 20 doesn't, so the retry is the one used.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({
+                1: [five_questions(count=10)],
+                2: [five_questions(bad_ids={1, 2, 3, 4, 5}, count=10, first=11), five_questions(bad_ids={1, 2, 3}, count=7, first=11)],
+            })
+
+        self.assertEqual(len(result["questions"]), 14)
+
+    def test_too_few_questions_overall_retries_the_batches_that_can_help(self):
+        # 20 asked: batch 1 writes 1 question, batch 2 says its pages have nothing to ask.
+        # 1 question is too few, so batch 1 tries again (batch 2 isn't asked twice).
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate({1: [five_questions(count=1), five_questions(count=4)], 2: [INSUFFICIENT]}, parallel=False)
+
+        self.assertEqual(self.calls(1), 2)
+        self.assertEqual(self.calls(2), 1)
+        self.assertEqual(len(result["questions"]), 4)
+
+    def test_repeats_across_batches_can_make_a_quiz_too_small(self):
+        # 11 asked (6 + 5). Each batch writes the same 2 questions: 2 distinct, so both retry.
+        with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+            result = self.generate(
+                {1: [five_questions(count=2), five_questions(count=6)], 2: [five_questions(count=2), five_questions(count=5, first=7)]},
+                count=11,
+            )
+
+        self.assertEqual(self.calls(), 4)
+        self.assertEqual(len(result["questions"]), 11)
+
+    def test_a_timed_out_batch_fails_the_quiz_with_its_message(self):
+        def create(**request):
+            if "PART 2 OF" in request["instructions"]:
+                raise APITimeoutError(SimpleNamespace())
+            return SimpleNamespace(status="completed", output_text=json.dumps(five_questions(count=10)))
+
+        with (
+            patch.dict(os.environ, {"LLM_API_KEY": "test-only-key"}),
+            patch("backend.services.quiz_generation.OpenAI") as factory,
+        ):
+            factory.return_value.__enter__.return_value.responses.create.side_effect = create
+            with self.assertLogs("backend.services.quiz_generation", level="WARNING"):
+                with self.assertRaisesRegex(LLMError, "took too long"):
+                    generate_quiz(LECTURE_TEXT, question_count=20)
 
 
 class TestQuizGeneration(unittest.TestCase):
@@ -469,7 +762,7 @@ class TestQuizGeneration(unittest.TestCase):
             ("", 5),
             ("Text without page markers", 5),
             (self.SOURCE, 0),
-            (self.SOURCE, 11),
+            (self.SOURCE, 21),
             (self.SOURCE, True),
         ]
 

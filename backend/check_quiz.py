@@ -17,9 +17,9 @@ def main():
     parser.add_argument(
         "--questions",
         type=int,
-        choices=range(1, 11),
+        choices=range(1, 21),
         default=5,
-        help="Number of questions to generate, from 1 to 10 (default: 5).",
+        help="Number of questions to generate, from 1 to 20 (default: 5).",
     )
     args = parser.parse_args()
 

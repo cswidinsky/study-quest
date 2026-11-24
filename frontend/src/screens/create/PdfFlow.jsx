@@ -4,7 +4,7 @@ import { generateDeckFromPdf, generationKeywords, generationStages, isLive } fro
 import { formatBytes } from '../../lib/format.js'
 import Button from '../../components/Button.jsx'
 import { Field, TextInput } from '../../components/Field.jsx'
-import { AlertIcon, CheckIcon, FileIcon } from '../../components/icons.jsx'
+import { AlertIcon, CheckIcon, FileIcon, MinusIcon, PlusIcon } from '../../components/icons.jsx'
 import { courseOptions, suggestFromFile, toCourse } from './course.js'
 
 // PDF → quiz, in three phases: pick a file, check the details, watch it generate.
@@ -14,10 +14,14 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 // little room for the form data around the file.
 const MAX_MB = 4
 const MAX_BYTES = MAX_MB * 1024 * 1024 - 64 * 1024
-// How many questions to write. Flask asks the AI for this many and keeps the ones it can check
-// against the PDF (at least 80% of them), so a few may be dropped; the ready screen says so.
-const QUESTION_COUNTS = [3, 5, 10]
+// How many questions to write: any number from 3 to 20 (Flask writes more than 10 in parallel
+// batches). Flask keeps the ones it can check against the PDF, and a short PDF may support fewer,
+// so the deck can come back smaller; the ready screen says so.
+const MIN_QUESTIONS = 3
+const MAX_QUESTIONS = 20
+const QUICK_COUNTS = [5, 10, 15, 20]
 const DEFAULT_QUESTION_COUNT = 5
+const clampCount = (n) => Math.min(MAX_QUESTIONS, Math.max(MIN_QUESTIONS, Math.round(n)))
 const EASE_OUT = [0.23, 1, 0.32, 1]
 
 function validate(file) {
@@ -275,39 +279,7 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
         </Field>
       </div>
 
-      <fieldset className="mt-5">
-        <legend className="mb-2 text-sm font-medium">Questions</legend>
-        <div className="inline-flex rounded-full border border-border bg-surface p-0.5">
-          {QUESTION_COUNTS.map((n) => {
-            const checked = details.questionCount === n
-            return (
-              <label
-                key={n}
-                className={`relative grid h-9 min-w-14 cursor-pointer place-items-center rounded-full px-3 text-sm transition-[color] duration-150 ease-out has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-accent ${
-                  checked ? 'text-text' : 'text-muted hover:text-text'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name={`${id}-count`}
-                  value={n}
-                  checked={checked}
-                  onChange={() => setDetails((d) => ({ ...d, questionCount: n }))}
-                  className="sr-only"
-                />
-                {checked && (
-                  <motion.span
-                    layoutId={`${id}-count-pill`}
-                    className="absolute inset-0 rounded-full bg-background"
-                    transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
-                  />
-                )}
-                <span className="num relative">{n}</span>
-              </label>
-            )
-          })}
-        </div>
-      </fieldset>
+      <QuestionCount value={details.questionCount} onChange={(n) => setDetails((d) => ({ ...d, questionCount: n }))} />
 
       {error && (
         <p role="alert" className="mt-4 flex items-center gap-2 text-sm">
@@ -327,6 +299,104 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
         )}
       </div>
     </form>
+  )
+}
+
+// How many questions: − / number / + (the number is typeable too), plus quick picks.
+// While typing, the field may hold a half-written number ("1" on the way to "12"); it is
+// clamped to 3–20 when you leave the field, press Enter, or use the arrow keys.
+function QuestionCount({ value, onChange }) {
+  const id = useId()
+  const [draft, setDraft] = useState(null) // null: show `value`
+  const step = (by) => {
+    setDraft(null)
+    onChange(clampCount(value + by))
+  }
+  const commit = () => {
+    if (draft === null) return
+    const n = Number.parseInt(draft, 10)
+    onChange(Number.isNaN(n) ? value : clampCount(n))
+    setDraft(null)
+  }
+  const stepButton =
+    'grid size-10 shrink-0 place-items-center rounded-full text-muted transition-[color,background-color,transform] duration-150 ease-out hover:bg-background hover:text-text active:scale-90 disabled:pointer-events-none disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-accent'
+
+  return (
+    <fieldset className="mt-5">
+      <legend className="mb-2 text-sm font-medium">
+        Questions <span className="ml-1 font-normal text-muted">3 to 20</span>
+      </legend>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center rounded-full border border-border bg-surface p-0.5">
+          <button type="button" className={stepButton} onClick={() => step(-1)} disabled={value <= MIN_QUESTIONS} aria-label="Fewer questions">
+            <MinusIcon />
+          </button>
+          <input
+            id={`${id}-count`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            role="spinbutton"
+            aria-label="Number of questions"
+            aria-valuemin={MIN_QUESTIONS}
+            aria-valuemax={MAX_QUESTIONS}
+            aria-valuenow={value}
+            value={draft ?? String(value)}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 2)
+              setDraft(digits)
+              const n = Number.parseInt(digits, 10)
+              if (n >= MIN_QUESTIONS && n <= MAX_QUESTIONS) onChange(n)
+            }}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault()
+                step(e.key === 'ArrowUp' ? 1 : -1)
+              } else if (e.key === 'Enter') {
+                e.preventDefault() // settle the number; don't submit the form
+                commit()
+              }
+            }}
+            className="num h-10 w-11 rounded-lg bg-transparent text-center text-base font-medium text-text tabular-nums focus-visible:outline-2 focus-visible:outline-accent sm:text-sm"
+          />
+          <button type="button" className={stepButton} onClick={() => step(1)} disabled={value >= MAX_QUESTIONS} aria-label="More questions">
+            <PlusIcon />
+          </button>
+        </div>
+
+        <div className="inline-flex rounded-full border border-border bg-surface p-0.5" role="group" aria-label="Quick picks">
+          {QUICK_COUNTS.map((n) => {
+            const on = draft === null && value === n
+            return (
+              <button
+                key={n}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  setDraft(null)
+                  onChange(n)
+                }}
+                className={`relative grid h-10 min-w-12 place-items-center rounded-full px-3 text-sm transition-[color] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-accent ${
+                  on ? 'text-text' : 'text-muted hover:text-text'
+                }`}
+              >
+                {on && (
+                  <motion.span
+                    layoutId={`${id}-count-pill`}
+                    className="absolute inset-0 rounded-full bg-background"
+                    transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
+                  />
+                )}
+                <span className="num relative">{n}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </fieldset>
   )
 }
 
