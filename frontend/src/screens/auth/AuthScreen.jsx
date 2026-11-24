@@ -8,6 +8,7 @@ import ThemeToggle from '../../components/ThemeToggle.jsx'
 import Logo from '../../components/shell/Logo.jsx'
 import { Field, TextInput } from '../../components/Field.jsx'
 import { ArrowRightIcon, MailIcon } from '../../components/icons.jsx'
+import LandingInfo from './LandingInfo.jsx'
 import Preview from './Preview.jsx'
 import { Alert, PasswordInput, Spinner } from './parts.jsx'
 import { useAction } from './useAction.js'
@@ -99,6 +100,8 @@ export default function AuthScreen() {
           </AnimatePresence>
         </motion.section>
       </main>
+      {/* What StudyQuest is, in crawlable text, below the sign-up (not on reset / setup screens). */}
+      {view !== 'reset' && view !== 'setup' && <LandingInfo />}
     </div>
   )
 }
