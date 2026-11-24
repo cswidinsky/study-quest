@@ -14,9 +14,10 @@ import { courseOptions, suggestFromFile, toCourse } from './course.js'
 // little room for the form data around the file.
 const MAX_MB = 4
 const MAX_BYTES = MAX_MB * 1024 * 1024 - 64 * 1024
-// Demo data can write 5 or 10. The Flask server decides on its own: it asks for 5 and keeps
-// the ones it can check against the PDF (usually 4 or 5), so there's no choice to offer.
-const questionCounts = () => (isLive() ? [] : [5, 10])
+// How many questions to write. Flask asks the AI for this many and keeps the ones it can check
+// against the PDF (at least 80% of them), so a few may be dropped; the ready screen says so.
+const QUESTION_COUNTS = [3, 5, 10]
+const DEFAULT_QUESTION_COUNT = 5
 const EASE_OUT = [0.23, 1, 0.32, 1]
 
 function validate(file) {
@@ -33,7 +34,7 @@ export default function PdfFlow({ decks, onDone }) {
   const [phase, setPhase] = useState('pick') // 'pick' | 'details' | 'generating'
   const [file, setFile] = useState(null)
   const [error, setError] = useState(null)
-  const [details, setDetails] = useState({ title: '', course: '', questionCount: isLive() ? 5 : 10 })
+  const [details, setDetails] = useState({ title: '', course: '', questionCount: DEFAULT_QUESTION_COUNT })
   const [job, setJob] = useState({ stageIndex: 0, progress: 0 })
   const abortRef = useRef(null)
 
@@ -274,10 +275,10 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
         </Field>
       </div>
 
-      {questionCounts().length > 0 && <fieldset className="mt-5">
+      <fieldset className="mt-5">
         <legend className="mb-2 text-sm font-medium">Questions</legend>
         <div className="inline-flex rounded-full border border-border bg-surface p-0.5">
-          {questionCounts().map((n) => {
+          {QUESTION_COUNTS.map((n) => {
             const checked = details.questionCount === n
             return (
               <label
@@ -306,7 +307,7 @@ function Details({ file, details, setDetails, decks, error, onChangeFile, onGene
             )
           })}
         </div>
-      </fieldset>}
+      </fieldset>
 
       {error && (
         <p role="alert" className="mt-4 flex items-center gap-2 text-sm">

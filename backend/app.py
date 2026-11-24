@@ -91,6 +91,18 @@ def require_quiz_user(route):
     return protected_route
 
 
+# How many questions to ask for: the form field "question_count", clamped to 1–10 (default 5).
+DEFAULT_QUESTION_COUNT = 5
+
+
+def requested_question_count(raw):
+    try:
+        count = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_QUESTION_COUNT
+    return max(1, min(10, count))
+
+
 @app.post("/api/quizzes")
 @require_quiz_user
 def create_quiz(store, owner_id):
@@ -111,8 +123,9 @@ def create_quiz(store, owner_id):
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
 
+    question_count = requested_question_count(request.form.get("question_count"))
     try:
-        questions = generate_quiz(text)["questions"]
+        questions = generate_quiz(text, question_count=question_count)["questions"]
     except QuizValidationError as error:
         # The details (which check failed) are for us, not the student.
         app.logger.warning("Quiz generation produced no usable quiz: %s", error)
@@ -124,7 +137,8 @@ def create_quiz(store, owner_id):
 
     quiz_id = str(uuid.uuid4())
     store.create_quiz(quiz_id, owner_id, questions)
-    return jsonify({"id": quiz_id, "questions": strip_answers(questions)}), 201
+    # "requested": how many were asked for; fewer can come back when some fail the source check.
+    return jsonify({"id": quiz_id, "requested": question_count, "questions": strip_answers(questions)}), 201
 
 
 def strip_answers(questions):

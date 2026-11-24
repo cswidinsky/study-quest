@@ -5,6 +5,7 @@ import math
 import os
 import re
 import random
+import time
 import unicodedata
 
 from openai import (
@@ -37,8 +38,19 @@ DIFFICULTIES = ("easy", "medium", "hard")
 PAGE_MARKER = re.compile(r"^--- Page ([1-9]\d*) ---[ \t]*\r?$", re.MULTILINE)
 
 # A generated quiz is usable when at least this share of the requested questions
-# passes validation (4 of 5). Below that, generation is retried once.
-MIN_GOOD_SHARE = 0.75
+# passes validation (4 of 5, 8 of 10, 3 of 3). Below that, generation is retried once.
+MIN_GOOD_SHARE = 0.8
+
+# Time limits. The Vercel function may run for 300 s (vercel.json); reading the PDF and saving the
+# quiz need a little of that, so both attempts together get at most GENERATION_BUDGET seconds.
+# One attempt is allowed more time for more questions (the model writes ~600 tokens per question).
+GENERATION_BUDGET = 255
+MIN_RETRY_SECONDS = 45
+
+
+def attempt_timeout(question_count):
+    """Seconds one OpenAI request may take for this many questions (5 → 70 s, 10 → 120 s)."""
+    return 20 + 10 * question_count
 
 logger = logging.getLogger(__name__)
 
@@ -437,10 +449,15 @@ def generate_quiz(lecture_text, question_count=5):
     )
 
     # Questions whose snippet can't be found are dropped. If too few are left,
-    # ask once more and keep the better attempt.
-    enough = max(1, math.ceil(question_count * MIN_GOOD_SHARE))
+    # ask once more (if there's time left) and keep the better attempt.
+    enough = max(1, math.ceil(question_count * MIN_GOOD_SHARE - 1e-9))
+    deadline = time.monotonic() + GENERATION_BUDGET
     best = None
     for attempt in (1, 2):
+        remaining = deadline - time.monotonic()
+        if attempt > 1 and remaining < MIN_RETRY_SECONDS:
+            logger.warning("No time left for a retry (%.0f s); keeping the first attempt.", remaining)
+            break
         try:
             data = _request_quiz(
                 api_key=api_key,
@@ -449,6 +466,7 @@ def generate_quiz(lecture_text, question_count=5):
                 lecture_text=lecture_text,
                 question_count=question_count,
                 source_pages=source_pages,
+                timeout=min(attempt_timeout(question_count), remaining),
             )
             quiz = validate_generation_result(
                 data,
@@ -479,12 +497,12 @@ def generate_quiz(lecture_text, question_count=5):
     return shuffle_quiz_options(best)
 
 
-def _request_quiz(*, api_key, model, instructions, lecture_text, question_count, source_pages):
+def _request_quiz(*, api_key, model, instructions, lecture_text, question_count, source_pages, timeout=None):
     """One OpenAI request; returns the parsed JSON (not yet validated)."""
     try:
         with OpenAI(
             api_key=api_key,
-            timeout=30.0,
+            timeout=float(timeout if timeout is not None else attempt_timeout(question_count)),
             max_retries=0,
         ) as client:
             response = client.responses.create(

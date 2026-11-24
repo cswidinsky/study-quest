@@ -226,6 +226,7 @@ class TestQuizRoutes(unittest.TestCase):
         }])
         url = f"/api/quizzes/{quiz['id']}"
         self.assertEqual(self.quizzes[(quiz["id"], self.OWNER)]["questions"], [self.question])
+        self.assertEqual(quiz.pop("requested"), 5)  # only the create response says how many were asked for
         fetched = app.test_client().get(url, headers=self.HEADERS)
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.get_json(), quiz)
@@ -254,6 +255,23 @@ class TestQuizRoutes(unittest.TestCase):
         self.assertEqual(retry.status_code, 200)
         self.assertEqual(retry.get_json(), submitted.get_json())
         self.assertEqual(len(self.attempts), 1)
+
+    def test_question_count_is_sent_to_generation_and_clamped(self):
+        for raw, expected in (("10", 10), ("3", 3), ("99", 10), ("0", 1), ("abc", 5), (None, 5)):
+            with self.subTest(raw=raw), patch(
+                "backend.app.generate_quiz", return_value={"questions": [self.question]}
+            ) as generate:
+                with pymupdf.open() as document:
+                    document.new_page().insert_text((72, 72), self.question["sourceSnippet"])
+                    pdf_bytes = document.tobytes()
+                data = {"file": (BytesIO(pdf_bytes), "lecture.pdf")}
+                if raw is not None:
+                    data["question_count"] = raw
+                created = self.client.post("/api/quizzes", data=data, headers=self.HEADERS)
+
+                self.assertEqual(created.status_code, 201)
+                self.assertEqual(generate.call_args.kwargs["question_count"], expected)
+                self.assertEqual(created.get_json()["requested"], expected)
 
     def test_invalid_submissions_return_bad_request(self):
         self.quizzes[(self.QUIZ_ID, self.OWNER)] = {"questions": [self.question]}

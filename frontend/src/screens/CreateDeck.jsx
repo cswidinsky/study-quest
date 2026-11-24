@@ -55,7 +55,7 @@ export default function CreateDeck() {
           <AnimatePresence mode="wait" initial={false}>
             {created ? (
               <motion.div key="ready" initial={{ opacity: 1 }} animate={{ opacity: 1 }}>
-                <DeckReady deck={created.deck} cards={created.cards} onAnother={startAnother} />
+                <DeckReady deck={created.deck} cards={created.cards} requested={created.requested} onAnother={startAnother} />
               </motion.div>
             ) : (
               <motion.div
