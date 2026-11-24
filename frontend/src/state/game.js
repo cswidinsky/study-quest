@@ -14,7 +14,8 @@ export function useGame() {
   return game
 }
 
-export const DEFAULT_SETTINGS = { sound: false, haptics: true }
+// Sound is on unless the person turns it off (soundChosen marks that they used a sound toggle).
+export const DEFAULT_SETTINGS = { sound: true, haptics: true }
 
 export const initialState = {
   status: 'loading', // 'loading' | 'ready' | 'error'
@@ -75,8 +76,11 @@ export function reducer(state, action) {
       }
     }
 
-    case 'settings/update':
-      return { ...state, data: { ...state.data, settings: { ...state.data.settings, ...action.patch } } }
+    case 'settings/update': {
+      // Touching the sound switch is remembered as a choice (so the default never overrides it).
+      const patch = 'sound' in action.patch ? { ...action.patch, soundChosen: true } : action.patch
+      return { ...state, data: { ...state.data, settings: { ...state.data.settings, ...patch } } }
+    }
     case 'profile/update':
       return { ...state, data: { ...state.data, user: { ...state.data.user, ...action.patch } } }
     case 'card/reported':

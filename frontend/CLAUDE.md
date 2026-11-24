@@ -235,8 +235,8 @@ New deck → drop a PDF → generate questions → "Learn it now" → quiz → r
   rematch round → results. Combo meter, answer feedback with XP breakdown, explanation and the
   source snippet, mastery-up moments, sparks, edge flashes, "Combo ×N" title cards. The level-up
   is held until the results reveal.
-- `src/lib/`: `session.js` (server-side: builds sessions, shuffles options), `sound.js` (Web Audio, off by
-  default), `haptics.js` (Android vibration), plus the files above.
+- `src/lib/`: `session.js` (server-side: builds sessions, shuffles options), `sound.js` (short, quiet
+  files in `public/sounds/` played with Web Audio; on by default, silent until the first click), `haptics.js` (Android vibration), plus the files above.
 - `src/components/`: `Ambient`, `Button` (`primary`, `deck`, `secondary`, `ghost`), `CountUp`,
   `FillBar`, `Field`, `icons`, `LevelBadge`, `LevelUpDialog`, `MasteryGem`, `Sparks`,
   `StreakFlame`, `Switch`, `ThemeToggle`, `TiltCard`, `Toaster`, `XpBar`, `shell/`

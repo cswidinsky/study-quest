@@ -52,7 +52,7 @@ export default function Settings() {
       <motion.section variants={rise} className="panel mt-4 divide-y divide-border rounded-3xl px-4 sm:px-6" aria-label="Feedback">
         <Row
           title="Sound effects"
-          detail="Chimes for right answers (higher as your combo grows), a soft thud for wrong ones, and a fanfare when you level up."
+          detail="Quiet sounds for picking and submitting answers, right and wrong, XP, your streak, new decks and level-ups. On by default."
           htmlFor="set-sound"
         >
           <Button variant="ghost" size="sm" onClick={() => play('combo', { force: true })}>

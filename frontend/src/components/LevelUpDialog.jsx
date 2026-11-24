@@ -63,6 +63,7 @@ function Celebration({ levelUp, totalXp, onClose }) {
     buttonRef.current?.focus()
     const onKey = (e) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
+    if (reduce) play('levelup') // no choreography to wait for
     const timer = reduce
       ? null
       : setTimeout(() => {
